@@ -1,0 +1,26 @@
+Package: csam
+Type: Package
+Title: Correlated Species Archetype Models
+Version: 0.1.0
+Authors@R: c(
+    person("Elliot", "Dovers", email = "elliot.dovers@gmail.com", role = c("aut", "cre"))
+    )
+Description: Fits correlated species archetype models (CSAMs) via an ECM algorithm.
+    The model is a finite mixture of generalized linear models with shared
+    archetype-specific regression coefficients and a common factor-analytic
+    term capturing residual species correlation via site scores and species
+    loadings. Penalized likelihood estimation is used with ridge penalties on
+    the factor scores and loadings.
+Depends: R (>= 4.0.0)
+Imports:
+    stats,
+    grDevices,
+    graphics
+Suggests:
+    corrplot,
+    roxygen2
+License: GPL-3
+Encoding: UTF-8
+LazyData: true
+Roxygen: list(markdown = TRUE)
+RoxygenNote: 7.3.2

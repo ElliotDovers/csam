@@ -15,7 +15,10 @@ Depends: R (>= 4.0.0)
 Imports:
     stats,
     grDevices,
-    graphics
+    graphics,
+    Rdpack
+RdMacros:
+    Rdpack
 Suggests:
     corrplot,
     roxygen2

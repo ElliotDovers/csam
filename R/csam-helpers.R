@@ -246,6 +246,132 @@ mstep_site_scores <- function(Y, X, B, beta0, Lambda, U, phi, pi, tau,
   U_new
 }
 
+#' E-step posterior probabilities for vanilla SAM (internal)
+#'
+#' @keywords internal
+estep0_post_probs <- function(Y, X, beta0, B, phi, pi, family,
+                             trunc.interval = FALSE) {
+
+  n <- nrow(Y); s <- ncol(Y); g <- nrow(B)
+
+  loglik_mat <- matrix(NA, s, g)
+
+  for (j in 1:s) {
+    yj <- Y[, j]
+
+    for (k in 1:g) {
+      eta <- beta0[j] + X %*% B[k, ]
+      mu  <- family$linkinv(eta)
+
+      dev <- family$dev.resids(yj, mu, wt = rep(1, n))
+      ll  <- -0.5 * family$aic(yj, rep(1, n), mu, rep(1, n), dev)
+
+      loglik_mat[j, k] <- sum(ll)
+    }
+  }
+
+  logpost <- sweep(loglik_mat, 2, log(pi), "+")
+  tau <- exp(logpost - apply(logpost, 1, max))
+  tau <- tau / rowSums(tau)
+
+  if (trunc.interval) {
+    alpha <- (1 - 0.8 * g) / ((0.8 * 2 - g) - 1)
+    tau <- apply(tau, 2, function(x) {
+      ((2 * alpha * x) - alpha + 1) / ((2 * alpha) - (alpha * g) + g)
+    })
+  }
+
+  tau
+}
+
+#' M-step for vanilla SAM: archetype parameters (internal)
+#'
+#' @keywords internal
+mstep0_arch_pars <- function(Y, X, beta0, B, phi, pi, tau,
+                            family, maxit = 1) {
+
+  n <- nrow(Y); s <- ncol(Y); g <- nrow(B); p <- ncol(X)
+  B_new <- B
+
+  for (k in 1:g) {
+
+    y_stack <- as.vector(Y)
+    X_stack <- do.call(rbind, replicate(s, X, simplify = FALSE))
+
+    offset_stack <- rep(0, n * s)
+    weights_stack <- rep(0, n * s)
+
+    for (j in 1:s) {
+      idx <- ((j - 1) * n + 1):(j * n)
+      offset_stack[idx] <- beta0[j]
+      weights_stack[idx] <- tau[j, k]
+    }
+
+    # note suppressWarnings removes non-convergence as we are typically using only a single iteration
+    fit <- suppressWarnings(stats::glm.fit(
+      x = X_stack,
+      y = y_stack,
+      weights = weights_stack,
+      offset = offset_stack,
+      family = family,
+      control = list(maxit = maxit)
+    ))
+
+    B_new[k, ] <- fit$coefficients
+  }
+
+  B_new
+}
+
+#' M-step for vanilla SAM: species parameters (internal)
+#'
+#' @keywords internal
+mstep0_species_pars <- function(Y, X, B, beta0, phi, pi, tau,
+                               family, maxit = 1) {
+
+  n <- nrow(Y); s <- ncol(Y); g <- nrow(B)
+
+  beta0_new <- beta0
+  phi_new <- phi
+
+  for (j in 1:s) {
+
+    y_stack <- rep(NA, n * g)
+    X_stack <- matrix(0, nrow = n * g, ncol = 1)
+    weights_stack <- rep(0, n * g)
+    offset_stack <- rep(0, n * g)
+
+    for (k in 1:g) {
+      idx <- ((k - 1) * n + 1):(k * n)
+      y_stack[idx] <- Y[, j]
+      X_stack[idx, 1] <- 1
+      offset_stack[idx] <- as.vector(X %*% B[k, ])
+      weights_stack[idx] <- tau[j, k]
+    }
+
+    # note suppressWarnings removes non-convergence as we are typically using only a single iteration
+    fit <- suppressWarnings(stats::glm.fit(
+      x = X_stack,
+      y = y_stack,
+      weights = weights_stack,
+      offset = offset_stack,
+      family = family,
+      control = list(maxit = maxit)
+    ))
+
+    coef_j <- fit$coefficients
+    beta0_new[j] <- coef_j[1]
+
+    if (family$family == "gaussian") {
+      mu <- fit$mu
+      phi_new[j] <- sum(weights_stack * (y_stack - mu)^2) / sum(weights_stack)
+    }
+  }
+
+  list(beta0 = beta0_new, phi = phi_new)
+}
+
+
 #' Calculate the complete-data expected score function (internal)
 #'
 #' @keywords internal
@@ -405,4 +531,101 @@ hessian_complete <- function(object) {
   }
 
   H_list
+}
+
+#' Initialise starting values for Species Archetype Models
+#'
+#' Generates starting values for a Species Archetype Model (SAM) by fitting
+#' species‑specific GLMs to obtain warm‑start coefficients and clustering the
+#' resulting slope estimates into \eqn{g} archetypes using k‑means. The returned
+#' list provides initial values for species intercepts, archetype slopes, mixing
+#' proportions, and dispersion parameters, suitable for use in ECM optimisation.
+#'
+#' @param Y A numeric response matrix with \eqn{n} rows (sites) and \eqn{s}
+#'   columns (species).
+#' @param X A numeric design matrix with \eqn{n} rows and \eqn{p} predictors.
+#' @param g Integer specifying the number of archetypes. Defaults to 3.
+#' @param family A GLM family object used for the species‑specific warm‑start
+#'   models. Defaults to \code{poisson()}.
+#'
+#' @details
+#' The function proceeds in two stages:
+#'
+#' \strong{1. Species‑specific warm starts.}
+#' Each species is fitted with a GLM using \code{glm.fit()}, yielding an
+#' intercept and a vector of slopes. These form a matrix of species‑level slope
+#' estimates of dimension \eqn{s \times p}.
+#'
+#' \strong{2. Archetype clustering.}
+#' The slope matrix is clustered into \eqn{g} groups using
+#' \code{stats::kmeans()}. The cluster centres initialise the archetype‑level
+#' slope matrix \eqn{B}, and the empirical cluster frequencies initialise the
+#' mixing proportions \eqn{\pi}.
+#'
+#' The returned list contains:
+#' \itemize{
+#'   \item \code{beta0}: species‑specific intercepts;
+#'   \item \code{B}: a \eqn{g \times p} matrix of archetype slopes;
+#'   \item \code{pi}: mixing proportions for the \eqn{g} archetypes;
+#'   \item \code{phi}: species‑specific dispersion parameters (initially 1).
+#' }
+#'
+#' An attribute \code{"sp clust"} stores the species‑level cluster assignments
+#' from the k‑means step.
+#'
+#' @return A list containing initial parameter values for a SAM, with an
+#'   attribute storing species cluster assignments.
+#'
+#' @export
+#'
+#' @importFrom stats kmeans glm.fit
+init.sam.pars <- function(Y, X, g = 3, family = poisson()) {
+
+  n <- nrow(Y); s <- ncol(Y); p <- ncol(X)
+
+  # initialise parameter list
+  start.pars = list(beta0 = rep(0, s), B = matrix(rep(0, g * p), g, p), pi = rep(1/g, g), phi = rep(1, s))
+
+  # fit an initial species-specific models to obtain warm starts as in Hui et al. 2013
+  beta0.init = vector("numeric", s)
+  beta1.init = matrix(rep(0, s * p), s, p)
+  for (sp in 1:s) {
+    tmp.m = glm.fit(x = cbind(rep(1, nrow(X)), X), y = Y[,sp], family = family)
+    beta0.init[sp] = tmp.m$coefficients[1]
+    beta1.init[sp, ] = tmp.m$coefficients[2:(p + 1)]
+  }
+  clust = stats::kmeans(beta1.init, g)
+  # update the starting parameters for the slopes and intercepts
+  start.pars$beta0 = beta0.init
+  start.pars$B = clust$centers
+  start.pars$pi = prop.table(table(clust$cluster))
+
+  attr(start.pars, "sp clust") = clust$clust
+  start.pars
+}
+
+#' Function to initialise factor analytic parameters
+init.fa.pars <- function(Y, X, g = 3, family = poisson(), d = 2) {
+
+  n <- nrow(Y); s <- ncol(Y); p <- ncol(X)
+
+  # initialise usual SAM parameters
+  start.pars = csam::init.sam.pars(Y, X, g = 3, family = poisson())
+
+  # fit an initial species-specific models to obtain warm starts as in Hui et al. 2013
+  beta0.init = vector("numeric", s)
+  res = matrix(rep(0, n * s), n, s)
+  for (sp in 1:s) {
+    tmp.offset = X %*% start.pars$B[attr(start.pars,"sp clust")[sp], ]
+    tmp.m = glm.fit(x = rep(1, nrow(X)), y = Y[,sp], family = family, offset = tmp.offset)
+    res[ , sp] = statmod::qresid(tmp.m)
+  }
+  clust = stats::kmeans(beta1.init, g)
+  # update the starting parameters for the slopes and intercepts
+  start.pars$beta0 = beta0.init
+  start.pars$B = clust$centers
+  start.pars$pi = prop.table(table(clust$cluster))
+
+  attr(start.pars, "sp clust") = clust$clust
+  start.pars
 }

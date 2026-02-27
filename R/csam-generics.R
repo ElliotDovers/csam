@@ -397,11 +397,18 @@ vcov.csam <- function(object,
       idx_j <- ((j-1)*g + 1):(j*g)
 
       Hbar_j <- Reduce(`+`, Map(function(Hjk, w) w * Hjk, H[idx_j], tau[j, ]))
-      sbar_j <- colSums(tau[j, ] * S[idx_j, , drop=FALSE])
-      S2_j   <- Reduce(`+`, Map(function(sjk, w) w * tcrossprod(sjk),
-                                split(S[idx_j, ], row(S[idx_j, ])), tau[j, ]))
 
-      Info <- Info + Hbar_j + (S2_j - tcrossprod(sbar_j))
+      S_j <- S[idx_j, , drop = FALSE]  # g × p_theta
+
+      sbar_j <- colSums(tau[j, ] * S_j)
+
+      S2_j <- matrix(0, p_theta, p_theta)
+      for (k in 1:g) {
+        sjk <- S_j[k, ]
+        S2_j <- S2_j + tau[j, k] * tcrossprod(sjk)
+      }
+
+      Info <- Info + Hbar_j - (S2_j - tcrossprod(sbar_j))
     }
 
     covmat <- tryCatch(solve(Info), error = function(e) MASS::ginv(Info))
@@ -419,11 +426,19 @@ vcov.csam <- function(object,
       idx_j <- ((j-1)*g + 1):(j*g)
 
       Hbar_j <- Reduce(`+`, Map(function(Hjk, w) w * Hjk, H[idx_j], tau[j, ]))
-      sbar_j <- colSums(tau[j, ] * S[idx_j, , drop=FALSE])
-      S2_j   <- Reduce(`+`, Map(function(sjk, w) w * tcrossprod(sjk),
-                                split(S[idx_j, ], row(S[idx_j, ])), tau[j, ]))
 
-      Info <- Info + Hbar_j + (S2_j - tcrossprod(sbar_j))
+      S_j <- S[idx_j, , drop = FALSE]  # g × p_theta
+
+      sbar_j <- colSums(tau[j, ] * S_j)
+
+      S2_j <- matrix(0, p_theta, p_theta)
+      for (k in 1:g) {
+        sjk <- S_j[k, ]
+        S2_j <- S2_j + tau[j, k] * tcrossprod(sjk)
+      }
+
+      Info <- Info + Hbar_j - (S2_j - tcrossprod(sbar_j))
+
       Meat <- Meat + tcrossprod(sbar_j)
     }
 

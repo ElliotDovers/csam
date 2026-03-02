@@ -604,7 +604,64 @@ init.sam.pars <- function(Y, X, g = 3, family = poisson()) {
   start.pars
 }
 
-#' Function to initialise factor analytic parameters
+#' Initialise starting values for correlated Species Archetype Models
+#'
+#' Generates starting values for a correlated Species Archetype Model (CSAM) by fitting
+#' species‑specific GLMs to obtain warm‑start coefficients and clustering the
+#' resulting slope estimates into \eqn{g} archetypes using k‑means. To obtain starting
+#' values for the factor-analytic components, a \eqn{d}-latent factor analysis is performed
+#' on the residuals from the above archetypal model (with hard classification). The returned
+#' list provides initial values for species intercepts, archetype slopes, mixing
+#' proportions, and dispersion parameters, as well as the site-specific factor scores and
+#' species-specific factor loadings. Ready for input into the \code{csam} function via the
+#' \code{init} argument.
+#'
+#' @param Y A numeric response matrix with \eqn{n} rows (sites) and \eqn{s}
+#'   columns (species).
+#' @param X A numeric design matrix with \eqn{n} rows and \eqn{p} predictors.
+#' @param g Integer specifying the number of archetypes. Defaults to 3.
+#' @param family A GLM family object used for the species‑specific warm‑start
+#'   models. Defaults to \code{poisson()}.
+#' @param d Integer specifying the number of latent factors. Defaults to 2.
+#'
+#' @details
+#' The function proceeds in three stages:
+#'
+#' \strong{1. Species‑specific warm starts.}
+#' Each species is fitted with a GLM using \code{glm.fit()}, yielding an
+#' intercept and a vector of slopes. These form a matrix of species‑level slope
+#' estimates of dimension \eqn{s \times p}.
+#'
+#' \strong{2. Archetype clustering.}
+#' The slope matrix is clustered into \eqn{g} groups using
+#' \code{stats::kmeans()}. The cluster centres initialise the archetype‑level
+#' slope matrix \eqn{B}, and the empirical cluster frequencies initialise the
+#' mixing proportions \eqn{\pi}.
+#'
+#' \strong{3. Residual Factor Analysis.}
+#' Randomized quantile residuals from the above \eqn{g} clustering (computed via \code{statmod::qresid}) are run in a \eqn{d} latent factor analysis
+#' using \code{gllvm:gllvm()}. Scores and loadings form the matrices of these parameters within the CSAM.
+#'
+#' The returned list contains:
+#' \itemize{
+#'   \item \code{beta0}: species‑specific intercepts;
+#'   \item \code{B}: a \eqn{g \times p} matrix of archetype slopes;
+#'   \item \code{pi}: mixing proportions for the \eqn{g} archetypes;
+#'   \item \code{U}: a \eqn{n \times d} matrix of site-specific factor scores;
+#'   \item \code{Lambda}: a \eqn{s \times d} matrix of species-specific factor loadings;
+#'   \item \code{phi}: species‑specific dispersion parameters (initially 1).
+#' }
+#'
+#' An attribute \code{"sp clust"} stores the species‑level cluster assignments
+#' from the k‑means step.
+#'
+#' @return A list containing initial parameter values for a SAM, with an
+#'   attribute storing species cluster assignments.
+#'
+#' @export
+#'
+#' @importFrom gllvm gllvm
+#' @importFrom statmod qresid
 init.fa.pars <- function(Y, X, g = 3, family = poisson(), d = 2) {
 
   n <- nrow(Y); s <- ncol(Y); p <- ncol(X)
@@ -620,12 +677,12 @@ init.fa.pars <- function(Y, X, g = 3, family = poisson(), d = 2) {
     tmp.m = glm.fit(x = rep(1, nrow(X)), y = Y[,sp], family = family, offset = tmp.offset)
     res[ , sp] = statmod::qresid(tmp.m)
   }
-  clust = stats::kmeans(beta1.init, g)
-  # update the starting parameters for the slopes and intercepts
-  start.pars$beta0 = beta0.init
-  start.pars$B = clust$centers
-  start.pars$pi = prop.table(table(clust$cluster))
+  # perform factor analysis on the residuals
+  tmp.fa = gllvm::gllvm(y = res, X = X, family = gaussian(), num.lv = d)
 
-  attr(start.pars, "sp clust") = clust$clust
-  start.pars
+  # update the starting parameters for the slopes and intercepts
+  start.pars$U = tmp.fa$lvs
+  start.pars$Lambda = coef(tmp.fa)$Species.scores
+
+  start.pars[c("beta0", "B", "pi", "U", "Lambda", "phi")]
 }

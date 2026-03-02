@@ -4,17 +4,7 @@
 \alias{init.sam.pars}
 \title{Initialise starting values for Species Archetype Models}
 \usage{
-init.sam.pars(
-  Y,
-  X,
-  g = 3,
-  family = poisson(),
-  max_iter = 100,
-  tol = 1e-06,
-  verbose = TRUE,
-  init = NULL,
-  trace = TRUE
-)
+init.sam.pars(Y, X, g = 3, family = poisson())
 }
 \arguments{
 \item{Y}{A numeric response matrix with \eqn{n} rows (sites) and \eqn{s}
@@ -26,19 +16,6 @@ columns (species).}
 
 \item{family}{A GLM family object used for the species‑specific warm‑start
 models. Defaults to \code{poisson()}.}
-
-\item{max_iter}{Maximum number of iterations for internal iterative
-procedures. Currently unused but reserved for future extensions.}
-
-\item{tol}{Convergence tolerance for internal iterative procedures. Currently
-unused but reserved for future extensions.}
-
-\item{verbose}{Logical; if \code{TRUE}, prints progress information.}
-
-\item{init}{Optional list of user‑supplied starting values. If provided, these
-override the automatically generated values.}
-
-\item{trace}{Logical; if \code{TRUE}, stores trace information for debugging.}
 }
 \value{
 A list containing initial parameter values for a SAM, with an

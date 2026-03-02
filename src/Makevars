@@ -1,0 +1,5 @@
+PKG_CPPFLAGS += -DTMBAD_FRAMEWORK -Wno-ignored-attributes
+PKG_CPPFLAGS += -DSUPPORT_OPENMP
+
+PKG_CXXFLAGS += -fopenmp
+PKG_LIBS += -fopenmp

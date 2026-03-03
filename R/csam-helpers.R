@@ -678,7 +678,7 @@ init.fa.pars <- function(Y, X, g = 3, family = poisson(), d = 2) {
     res[ , sp] = statmod::qresid(tmp.m)
   }
   # perform factor analysis on the residuals
-  tmp.fa = gllvm::gllvm(y = res, X = X, family = gaussian(), num.lv = d)
+  tmp.fa = gllvm::gllvm(y = res, X = matrix(rep(1, n), ncol = 1), family = gaussian(), num.lv = d)
 
   # update the starting parameters for the slopes and intercepts
   start.pars$U = tmp.fa$lvs

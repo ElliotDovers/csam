@@ -662,12 +662,12 @@ init.sam.pars <- function(Y, X, g = 3, family = poisson()) {
 #'
 #' @importFrom gllvm gllvm
 #' @importFrom statmod qresid
-init.fa.pars <- function(Y, X, g = 3, family = poisson(), d = 2) {
+init.fa.pars_gllvm <- function(Y, X, g = 3, family = poisson(), d = 2) {
 
   n <- nrow(Y); s <- ncol(Y); p <- ncol(X)
 
   # initialise usual SAM parameters
-  start.pars = csam::init.sam.pars(Y, X, g = 3, family = poisson())
+  start.pars = csam::init.sam.pars(Y, X, g = 3, family = family)
 
   # fit an initial species-specific models to obtain warm starts as in Hui et al. 2013
   beta0.init = vector("numeric", s)
@@ -684,5 +684,97 @@ init.fa.pars <- function(Y, X, g = 3, family = poisson(), d = 2) {
   start.pars$U = tmp.fa$lvs
   start.pars$Lambda = coef(tmp.fa)$Species.scores
 
+  start.pars[c("beta0", "B", "pi", "U", "Lambda", "phi")]
+}
+
+#' Initialise starting values for correlated Species Archetype Models
+#'
+#' Generates starting values for a correlated Species Archetype Model (CSAM) by fitting
+#' species‑specific GLMs to obtain warm‑start coefficients and clustering the
+#' resulting slope estimates into \eqn{g} archetypes using k‑means. To obtain starting
+#' values for the factor-analytic components, a \eqn{d}-latent factor analysis is performed
+#' on the residuals from the above archetypal model (with hard classification). The returned
+#' list provides initial values for species intercepts, archetype slopes, mixing
+#' proportions, and dispersion parameters, as well as the site-specific factor scores and
+#' species-specific factor loadings. Ready for input into the \code{csam} function via the
+#' \code{init} argument.
+#'
+#' @param Y A numeric response matrix with \eqn{n} rows (sites) and \eqn{s}
+#'   columns (species).
+#' @param X A numeric design matrix with \eqn{n} rows and \eqn{p} predictors.
+#' @param g Integer specifying the number of archetypes. Defaults to 3.
+#' @param family A GLM family object used for the species‑specific warm‑start
+#'   models. Defaults to \code{poisson()}.
+#' @param d Integer specifying the number of latent factors. Defaults to 2.
+#'
+#' @details
+#' The function proceeds in three stages:
+#'
+#' \strong{1. Species‑specific warm starts.}
+#' Each species is fitted with a GLM using \code{glm.fit()}, yielding an
+#' intercept and a vector of slopes. These form a matrix of species‑level slope
+#' estimates of dimension \eqn{s \times p}.
+#'
+#' \strong{2. Archetype clustering.}
+#' The slope matrix is clustered into \eqn{g} groups using
+#' \code{stats::kmeans()}. The cluster centres initialise the archetype‑level
+#' slope matrix \eqn{B}, and the empirical cluster frequencies initialise the
+#' mixing proportions \eqn{\pi}.
+#'
+#' \strong{3. Residual Factor Analysis.}
+#' Randomized quantile residuals from the above \eqn{g} clustering (computed via \code{residuals.glmmTMB(x, type = "dunn-smyth")}) are run in a \eqn{d}-latent factor analysis
+#' using \code{glmmTMB}'s \code{rr()} function (requires setting up an \eqn{n\times s} temporary data.frame). Scores and loadings form the matrices of these parameters within the CSAM.
+#'
+#' The returned list contains:
+#' \itemize{
+#'   \item \code{beta0}: species‑specific intercepts;
+#'   \item \code{B}: a \eqn{g \times p} matrix of archetype slopes;
+#'   \item \code{pi}: mixing proportions for the \eqn{g} archetypes;
+#'   \item \code{U}: a \eqn{n \times d} matrix of site-specific factor scores;
+#'   \item \code{Lambda}: a \eqn{s \times d} matrix of species-specific factor loadings;
+#'   \item \code{phi}: species‑specific dispersion parameters (initially 1).
+#' }
+#'
+#' An attribute \code{"sp clust"} stores the species‑level cluster assignments
+#' from the k‑means step.
+#'
+#' @return A list containing initial parameter values for a SAM, with an
+#'   attribute storing species cluster assignments.
+#'
+#' @export
+#'
+#' @importFrom glmmTMB glmmTMB getME
+init.fa.pars <- function(Y, X, g = 3, family = poisson(), d = 2) {
+
+  n <- nrow(Y); s <- ncol(Y); p <- ncol(X)
+
+  # initialise usual SAM parameters
+  start.pars = csam::init.sam.pars(Y, X, g = g, family = family)
+
+  # fit an initial species-specific models to obtain warm starts as in Hui et al. 2013
+  beta0.init = vector("numeric", s)
+  res = matrix(rep(0, n * s), n, s)
+  for (sp in 1:s) {
+    tmp.offset = X %*% start.pars$B[attr(start.pars,"sp clust")[sp], ]
+    tmp.m = glmmTMB::glmmTMB(y ~ 1, data = data.frame(y = Y[,sp]), family = family, offset = tmp.offset)
+    res[ , sp] = glmmTMB:::residuals.glmmTMB(tmp.m, type = "dunn-smyth")
+  }
+
+  # put data in long format
+  tmp.dat = data.frame(res = as.vector(res), sp = factor(rep(1:s, each = nrow(res))), site = factor(rep(1:n, s)))
+  # perform factor analysis on the residuals
+  tmp.fa = glmmTMB::glmmTMB(res ~  0 + rr(sp + 0|site, d = d), data = tmp.dat, family = gaussian)
+
+  # get the scores (these include zero's for full rank model)
+  rr_b = glmmTMB::getME(tmp.fa, "b")
+  # get out the observation-specific coefs (aka factor scores) by selecting d elements out of each s blocks
+  scores = list()
+  for (i in 1:d) {
+    scores[[i]] = rr_b[seq(i,length(rr_b), by = s)]
+  }
+  start.pars$U = sapply(scores, cbind)
+  start.pars$Lambda = tmp.fa$obj$env$report(tmp.fa$fit$parfull)$fact_load[[which(tmp.fa$modelInfo$grpVar == "site" & sapply(tmp.fa$modelInfo$reStruc$condReStruc, function(x){x$blockCode}) == 9)]]
+
+  # return start pars in canonical order
   start.pars[c("beta0", "B", "pi", "U", "Lambda", "phi")]
 }

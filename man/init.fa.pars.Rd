@@ -49,8 +49,8 @@ slope matrix \eqn{B}, and the empirical cluster frequencies initialise the
 mixing proportions \eqn{\pi}.
 
 \strong{3. Residual Factor Analysis.}
-Randomized quantile residuals from the above \eqn{g} clustering (computed via \code{statmod::qresid}) are run in a \eqn{d} latent factor analysis
-using \code{gllvm:gllvm()}. Scores and loadings form the matrices of these parameters within the CSAM.
+Randomized quantile residuals from the above \eqn{g} clustering (computed via \code{residuals.glmmTMB(x, type = "dunn-smyth")}) are run in a \eqn{d}-latent factor analysis
+using \code{glmmTMB}'s \code{rr()} function (requires setting up an \eqn{n\times s} temporary data.frame). Scores and loadings form the matrices of these parameters within the CSAM.
 
 The returned list contains:
 \itemize{

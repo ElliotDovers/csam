@@ -36,11 +36,19 @@ Type objective_function<Type>::operator() ()
   switch(lik_type) {
 
   case 0:
-#include "pll.h"
+    #include "pll.h"
     break;
 
   case 1:
-#include "mll.h"
+    #include "mll.h"
+    break;
+
+  case 2:
+    #include "cpll.h"
+    break;
+
+  case 3:
+    #include "cmll.h"
     break;
 
   default:

@@ -104,6 +104,35 @@ csam <- function(Y, X, g = 3, d = 2, family = poisson(),
   Lambda <- if (!is.null(init$Lambda)) init$Lambda else matrix(rnorm(s * d, 0, 0.1), s, d)
   phi    <- if (!is.null(init$phi))   init$phi   else rep(1, s)
 
+  # some checks on warm starts
+  if (g != nrow(B)) {
+    stop("mismatch between initial archetype parameters, B, and specified g")
+  }
+  if (p != ncol(B)) {
+    stop("mismatch between initial predictor parameters, B, and columns in supplied X")
+  }
+  if (s != length(beta0)) {
+    stop("mismatch between initial response intercepts, beta0, and response columns in supplied Y")
+  }
+  if (s != length(phi)) {
+    stop("mismatch between initial response dispersion parameters, phi, and response columns in supplied Y")
+  }
+  if (g != length(pi)) {
+    stop("mismatch between initial mixing parameters, pi, and specified g")
+  }
+  if (s != nrow(Lambda)) {
+    stop("mismatch between initial factor loadings, Lambda, and response columns in supplied Y")
+  }
+  if (n != nrow(U)) {
+    stop("mismatch between initial factor scores, U, and response rows in supplied Y")
+  }
+  if (d != ncol(Lambda)) {
+    stop("mismatch between initial factor loadings, Lambda, and specified d")
+  }
+  if (d != ncol(U)) {
+    stop("mismatch between initial factor scores, U, and specified d")
+  }
+
   prev_pll <- -Inf
 
   if (trace) {
@@ -317,6 +346,23 @@ sam <- function(Y, X, g = 3, family = poisson(),
   B      <- if (!is.null(init$B))     init$B     else matrix(rnorm(g * p, 0, 0.1), g, p)
   pi     <- if (!is.null(init$pi))    init$pi    else rep(1 / g, g)
   phi    <- if (!is.null(init$phi))   init$phi   else rep(1, s)
+
+  # some checks on warm starts
+  if (g != nrow(B)) {
+    stop("mismatch between initial archetype parameters, B, and specified g")
+  }
+  if (p != ncol(B)) {
+    stop("mismatch between initial predictor parameters, B, and columns in supplied X")
+  }
+  if (s != length(beta0)) {
+    stop("mismatch between initial response intercepts, beta0, and response columns in supplied Y")
+  }
+  if (s != length(phi)) {
+    stop("mismatch between initial response dispersion parameters, phi, and response columns in supplied Y")
+  }
+  if (g != length(pi)) {
+    stop("mismatch between initial mixing parameters, pi, and specified g")
+  }
 
   prev_pll <- -Inf
 

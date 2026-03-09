@@ -1,11 +1,5 @@
 // mll.h
 {
-  vector<Type> pi(g);
-  {
-    Type m = theta_pi.maxCoeff();
-    vector<Type> exp_theta = (theta_pi.array() - m).exp();
-    pi = exp_theta / exp_theta.sum();
-  }
 
   matrix<Type> XB(n, g);
   XB.setZero();
@@ -17,7 +11,7 @@
   UL.setZero();
   for(int j=0;j<s;j++)
     for(int r=0;r<d;r++)
-      UL.col(j) += U.col(r) * Lambda(j,r);
+      UL.col(j) += U.col(r) * Lambda_con(j,r);
 
   Type nll = 0.0;
 
@@ -42,5 +36,6 @@
     for(int r=0;r<d;r++)
       nll -= dnorm(U(i,r), Type(0), Type(1), true);
 
+  REPORT(Lambda_con);
   return nll;
 }

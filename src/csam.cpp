@@ -19,11 +19,7 @@ Type objective_function<Type>::operator() ()
   PARAMETER_VECTOR(theta_pi);
   PARAMETER_MATRIX(U);
   PARAMETER_MATRIX(Lambda);
-  PARAMETER_VECTOR(phi);
-
-  // ---- Penalised-only DATA ----
-  DATA_SCALAR(psi1);
-  DATA_SCALAR(psi2);
+  PARAMETER_VECTOR(logphi);
 
   // ---- Dimensions ----
   int n = Y.rows();
@@ -31,6 +27,46 @@ Type objective_function<Type>::operator() ()
   int p = X.cols();
   int g = B.rows();
   int d = U.cols();
+
+  // --- PARAMETER CONSTRAINTS
+
+  // dispersion > 0
+  vector<Type> phi = logphi.exp();
+
+  // 0 <= pi <= 1 (via softmax)
+  vector<Type> pi(g);
+  {
+    Type m = theta_pi.maxCoeff();
+    vector<Type> exp_theta = (theta_pi.array() - m).exp();
+    pi = exp_theta / exp_theta.sum();
+  }
+
+  // // Constraints on factor loadings
+  // int idx = 0;
+  // matrix<Type> Lambda_con(s, d);
+  // Lambda_con.setZero();
+  //
+  // // Fill lower-triangular: for r = 0..d-1, allow entries j=r..s-1 (or choose per your convention)
+  // for (int r = 0; r < d; ++r) {
+  //   for (int j = r; j < s; ++j) {
+  //     if (j == 0 && r == d) {
+  //       // upper triangular:
+  //       Lambda_con(j, r) = 0;
+  //     } else if (j == r) {
+  //       // diagonal: parameterise on log-scale to enforce positivity
+  //       Lambda_con(j, r) = exp(Lambda(idx));
+  //     } else {
+  //       // off-diagonal: unconstrained
+  //       Lambda_con(j, r) = Lambda(idx);
+  //     }
+  //     idx++;
+  //   }
+  // }
+  matrix<Type> Lambda_con = Lambda;
+
+  // ---- Penalised-only DATA ----
+  DATA_SCALAR(psi1);
+  DATA_SCALAR(psi2);
 
   // ---- Dispatch ----
   switch(lik_type) {

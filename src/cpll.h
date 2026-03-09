@@ -3,14 +3,6 @@
   // ---- Complete data Parameters ----
   PARAMETER_MATRIX(Z);
 
-  // Softmax
-  vector<Type> pi(g);
-  {
-    Type m = theta_pi.maxCoeff();
-    vector<Type> exp_theta = (theta_pi.array() - m).exp();
-    pi = exp_theta / exp_theta.sum();
-  }
-
   // XB
   matrix<Type> XB(n, g);
   XB.setZero();
@@ -23,7 +15,7 @@
   UL.setZero();
   for(int j=0;j<s;j++)
     for(int r=0;r<d;r++)
-      UL.col(j) += U.col(r) * Lambda(j,r);
+      UL.col(j) += U.col(r) * Lambda_con(j,r);
 
   Type nll = 0.0;
 
@@ -40,12 +32,12 @@
       }
       loglik_k(k) = Z(j, k) * (log(pi(k)) + ll_k);
     }
-    nll -= log_sum_exp<Type>(loglik_k);
+    nll -= loglik_k.sum();
   }
 
   // penalties
   nll += 0.5 * psi1 * (U.array()*U.array()).sum();
-  nll += 0.5 * psi2 * (Lambda.array()*Lambda.array()).sum();
+  nll += 0.5 * psi2 * (Lambda_con.array()*Lambda_con.array()).sum();
 
   return nll;
 }

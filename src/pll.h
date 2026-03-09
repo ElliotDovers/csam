@@ -20,7 +20,7 @@
   UL.setZero();
   for(int j=0;j<s;j++)
     for(int r=0;r<d;r++)
-      UL.col(j) += U.col(r) * Lambda(j,r);
+      UL.col(j) += U.col(r) * Lambda_con(j,r);
 
   Type nll = 0.0;
 
@@ -42,7 +42,7 @@
 
   // penalties
   nll += 0.5 * psi1 * (U.array()*U.array()).sum();
-  nll += 0.5 * psi2 * (Lambda.array()*Lambda.array()).sum();
+  nll += 0.5 * psi2 * (Lambda.array()*Lambda_con.array()).sum();
 
   return nll;
 }

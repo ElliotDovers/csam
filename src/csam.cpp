@@ -79,14 +79,6 @@ Type objective_function<Type>::operator() ()
     #include "mll.h"
     break;
 
-  case 2:
-    #include "cpll.h"
-    break;
-
-  case 3:
-    #include "cmll.h"
-    break;
-
   default:
     error("lik_type must be 0 (penalised) or 1 (random effects).");
   }

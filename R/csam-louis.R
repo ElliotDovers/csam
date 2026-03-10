@@ -328,7 +328,8 @@ observed_information_csam <- function(object,
 
     for (k in 1:g) {
 
-      tau_jk <- tau[j, k]
+      # scale tau (per-species average -> expected count)
+      tau_jk <- tau[j, k] * n
 
       s_jk <- .flatten_score_jk(j, k, score, s, g, p, d)
       H_jk <- .flatten_hessian_jk(j, k, hessian, s, g, p, d)
@@ -359,9 +360,14 @@ vcov_csam <- function(object,
                       score   = NULL,
                       hessian = NULL,
                       invert  = TRUE,
-                      tol     = 1e-10) {
+                      tol     = 1e-10,
+                      marg_u = TRUE) {
 
-  Iobs <- observed_information_csam(object, score, hessian)
+  if (marg_u) {
+    Iobs <- observed_information_csam_laplace_fixed(object, score, hessian)
+  } else {
+    Iobs <- observed_information_csam(object, score, hessian)
+  }
 
   # symmetrise
   Iobs <- 0.5 * (Iobs + t(Iobs))
@@ -468,6 +474,9 @@ observed_information_csam_laplace_fixed <- function(object,
   if (is.null(score))   score   <- score_all(object)
   if (is.null(hessian)) hessian <- hessian_all(object)
 
+  # ---- scale tau: per-species average -> expected counts per species-component
+  tau_scaled <- tau * n
+
   # ---- helper flatteners (same as before) ----
   .flatten_score_jk_theta <- function(j, k, score, s, g, p, d) {
     P <- s + g * p + g + s * d + s
@@ -550,7 +559,6 @@ observed_information_csam_laplace_fixed <- function(object,
           omega[, j, k] <- -1 / a_phi
           kappa[, j, k] <- 0
         } else {
-          # fallback numeric (rare)
           eps <- 1e-6
           mu_eta2_jk <- (fam$mu.eta(eta_jk + eps) - fam$mu.eta(eta_jk - eps)) / (2 * eps)
           Vmu <- fam$variance(mu_jk)
@@ -566,8 +574,8 @@ observed_information_csam_laplace_fixed <- function(object,
          delta = delta, omega = omega, kappa = kappa)
   }
 
-  # ---- assemble U-blocks and inverses using tau (expected z) ----
-  .assemble_U_blocks_tau_safe <- function(object, scalars, tau, reg_eig) {
+  # ---- assemble U-blocks and inverses using tau_scaled (expected counts) ----
+  .assemble_U_blocks_tau_safe <- function(object, scalars, tau_scaled, reg_eig) {
     U <- object$U; Lambda <- object$Lambda
     n <- nrow(U); s <- ncol(object$Y); g <- nrow(object$B); d <- ncol(U)
     delta <- scalars$delta; omega <- scalars$omega
@@ -580,7 +588,7 @@ observed_information_csam_laplace_fixed <- function(object,
       for (j in 1:s) {
         lam_j <- Lambda[j, ]
         for (k in 1:g) {
-          w <- tau[j, k]
+          w <- tau_scaled[j, k]
           if (w == 0) next
           g_u <- g_u + w * delta[i, j, k] * lam_j
           H_block <- H_block + w * omega[i, j, k] * (lam_j %o% lam_j)
@@ -611,7 +619,6 @@ observed_information_csam_laplace_fixed <- function(object,
         lam_j <- Lambda[j, ]
         for (k in 1:g) {
           C <- matrix(0, nrow = d, ncol = P)
-          # w0 = 1 intentionally (do NOT include tau here)
           idx_beta0 <- seq_len(s)
           idx_B     <- (s + 1):(s + g * p)
           idx_Lam   <- (s + g * p + g + 1):(s + g * p + g + s * d)
@@ -632,7 +639,7 @@ observed_information_csam_laplace_fixed <- function(object,
 
   # ---- run computations ----
   scalars <- .compute_scalars_per_jk(object)
-  Ublocks <- .assemble_U_blocks_tau_safe(object, scalars, tau, reg_eig)
+  Ublocks <- .assemble_U_blocks_tau_safe(object, scalars, tau_scaled, reg_eig)
   H_U_blocks <- Ublocks$H_U_blocks; H_U_inv <- Ublocks$H_U_inv; min_eig_HU <- Ublocks$min_eig
   cross_site <- .build_cross_matrices_no_tau(object, scalars)
 
@@ -665,13 +672,13 @@ observed_information_csam_laplace_fixed <- function(object,
     }
   }
 
-  # assemble observed information via Louis' identity (tau applied here)
+  # assemble observed information via Louis' identity (use tau_scaled here)
   I_obs <- matrix(0, P, P)
   idx <- 1
   for (j in 1:s) {
     Sj_sum <- matrix(0, P, 1); Mj <- matrix(0, P, P)
     for (k in 1:g) {
-      tau_jk <- tau[j, k]
+      tau_jk <- tau_scaled[j, k]
       s_jk <- S_list[[idx]]
       H_jk <- H_adj_list[[idx]]
       I_obs <- I_obs - tau_jk * H_jk
@@ -704,5 +711,6 @@ observed_information_csam_laplace_fixed <- function(object,
     cat("  summary of I_obs eigenvalues: min =", round(min(valsI), 6), " max =", round(max(valsI), 6), "\n")
   }
 
-  list(I_obs = I_obs_reg, diagnostics = diag_list)
+  # list(I_obs = I_obs_reg, diagnostics = diag_list)
+  return(I_obs_reg)
 }

@@ -239,7 +239,7 @@ mstep_site_scores <- function(Y, X, B, beta0, Lambda, U, phi, pi, tau,
       maxit = maxit,
       start = U_new[i, ]
     )
-
+    # print(paste(i, "th site updated"))
     U_new[i, ] <- fit$coefficients
   }
 

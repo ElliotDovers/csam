@@ -364,31 +364,41 @@ plot.csam <- function(x,
 #'
 #' @exportS3Method stats::vcov csam
 vcov.csam <- function(object,
-                       method = c("naive", "louis", "oakes", "sandwich"),
+                       method = c("naive", "louis", "tmb", "sandwich"),
                        ...) {
 
   method <- match.arg(method)
 
-  S <- score_complete(object)        # (s*g) × pθ
-  H <- hessian_complete(object)      # list of length s*g
-  tau <- object$tau                  # s × g
-
-  s <- ncol(object$Y)
-  g <- nrow(object$B)
-
-  p_theta <- ncol(S)
-  name_vec <- colnames(S)
-
-  tau_vec <- as.vector(t(tau))       # length s*g, row-major (j,k)
-
   if (method == "naive") {
+
+    S <- score_complete(object)        # (s*g) × pθ
+    H <- hessian_complete(object)      # list of length s*g
+    tau <- object$tau                  # s × g
+
+    s <- ncol(object$Y)
+    g <- nrow(object$B)
+
+    p_theta <- ncol(S)
+    name_vec <- colnames(S)
+
+    tau_vec <- as.vector(t(tau))       # length s*g, row-major (j,k)
     Info <- Reduce(`+`, Map(function(Hjk, w) w * Hjk, H, tau_vec))
     covmat <- tryCatch(solve(Info), error = function(e) MASS::ginv(Info))
     colnames(covmat) <- rownames(covmat) <- name_vec
-    return(covmat)
-  }
 
-  if (method %in% c("louis", "oakes")) {
+  } else if (method == "louis") {
+
+    S <- score_complete(object)        # (s*g) × pθ
+    H <- hessian_complete(object)      # list of length s*g
+    tau <- object$tau                  # s × g
+
+    s <- ncol(object$Y)
+    g <- nrow(object$B)
+
+    p_theta <- ncol(S)
+    name_vec <- colnames(S)
+
+    tau_vec <- as.vector(t(tau))       # length s*g, row-major (j,k)
 
     Info <- matrix(0, p_theta, p_theta)
 
@@ -413,10 +423,49 @@ vcov.csam <- function(object,
 
     covmat <- tryCatch(solve(Info), error = function(e) MASS::ginv(Info))
     colnames(covmat) <- rownames(covmat) <- name_vec
-    return(covmat)
-  }
 
-  if (method == "sandwich") {
+  } else if (method == "tmb") {
+
+    # set up required data list for the AD function
+    data_list <- list(
+      Y = object$Y,
+      X = object$X,
+      psi1 = object$psi1,
+      psi2 = object$psi2,
+      family = switch(object$family$family,
+                      poisson = 0,
+                      binomial = 1,
+                      gaussian = 2),  # 0=Poisson, 1=Binomial, 2=Gaussian,...
+      lik_type = 1
+    )
+    # set up required parameter list for the AD function
+    start.pars.tmb = m[1:6]
+    start.pars.tmb$theta_pi = log(m$pi)
+    start.pars.tmb$pi = NULL
+    start.pars.tmb$logphi = log(m$phi)
+    start.pars.tmb$phi = NULL
+    obj <- TMB::MakeADFun(
+      data = data_list,
+      parameters = start.pars.tmb,
+      DLL = "csam", random = "U", map = list(logphi = factor(rep(NA, s)), theta_pi = factor(rep(NA, g))), # for now fixing these to cheat into non-singular matrix
+      silent = TRUE
+    )
+    rep <- TMB::sdreport(obj, getJointPrecision = TRUE)
+    covmat = solve(as.matrix(rep$jointPrecision))
+
+  } else if (method == "sandwich") {
+
+    S <- score_complete(object)        # (s*g) × pθ
+    H <- hessian_complete(object)      # list of length s*g
+    tau <- object$tau                  # s × g
+
+    s <- ncol(object$Y)
+    g <- nrow(object$B)
+
+    p_theta <- ncol(S)
+    name_vec <- colnames(S)
+
+    tau_vec <- as.vector(t(tau))       # length s*g, row-major (j,k)
 
     Info <- matrix(0, p_theta, p_theta)
     Meat <- matrix(0, p_theta, p_theta)
@@ -445,10 +494,12 @@ vcov.csam <- function(object,
     bread <- tryCatch(solve(Info), error = function(e) MASS::ginv(Info))
     covmat <- bread %*% Meat %*% bread
     colnames(covmat) <- rownames(covmat) <- name_vec
-    return(covmat)
+
+  } else {
+    stop("Unknown method")
   }
 
-  stop("Unknown method")
+  return(covmat)
 }
 
 #' Confidence intervals for csam fits (simple vcov-based, excluding pi and phi)
@@ -460,7 +511,7 @@ vcov.csam <- function(object,
 #'
 #' @exportS3Method stats::confint csam
 confint.csam <- function(object,
-                         method = c("louis", "naive", "oakes", "sandwich"),
+                         method = c("naive", "louis", "tmb", "sandwich"),
                          level = 0.95,
                          which = NULL,
                          ...) {

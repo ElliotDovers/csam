@@ -363,6 +363,7 @@ plot.csam <- function(x,
 #' }
 #'
 #' @exportS3Method stats::vcov csam
+#' @importFrom TMB sdreport MakeADFun
 vcov.csam <- function(object,
                        method = c("naive", "louis", "tmb", "sandwich"),
                        ...) {

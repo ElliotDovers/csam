@@ -4,7 +4,7 @@
 \alias{vcov.csam}
 \title{Variance-covariance estimators for csam fits (analytic, modular)}
 \usage{
-\method{vcov}{csam}(object, method = c("naive", "louis", "oakes", "sandwich"), ...)
+\method{vcov}{csam}(object, method = c("naive", "louis", "tmb", "sandwich"), ...)
 }
 \arguments{
 \item{object}{A fitted object of class \code{"csam"} (must contain \code{Y}, \code{X},

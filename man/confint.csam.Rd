@@ -6,7 +6,7 @@
 \usage{
 \method{confint}{csam}(
   object,
-  method = c("louis", "naive", "oakes", "sandwich"),
+  method = c("naive", "louis", "tmb", "sandwich"),
   level = 0.95,
   which = NULL,
   ...

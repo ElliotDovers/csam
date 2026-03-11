@@ -2,7 +2,7 @@
 % Please edit documentation in R/csam-helpers.R
 \name{mstep_species_pars}
 \alias{mstep_species_pars}
-\title{M-step: species parameters (internal)}
+\title{M-step: update species-level parameters for CSAM (species intercepts, loadings, dispersion)}
 \usage{
 mstep_species_pars(
   Y,
@@ -19,7 +19,94 @@ mstep_species_pars(
   maxit = 1
 )
 }
-\description{
-M-step: species parameters (internal)
+\arguments{
+\item{Y}{numeric matrix of species responses with \eqn{n} rows (sites) and
+\eqn{s} columns (species).}
+
+\item{X}{numeric design matrix with \eqn{n} rows (sites) and \eqn{p}
+columns (environmental covariates). Used to compute archetype offsets.}
+
+\item{B}{numeric matrix of archetype regression coefficients with \eqn{g}
+rows and \eqn{p} columns (row \code{k} = coefficients for archetype \code{k}).}
+
+\item{U}{numeric matrix of latent site covariates with \eqn{n} rows and
+\eqn{d} columns (site-level latent variables).}
+
+\item{beta0}{numeric vector of current species intercepts of length \eqn{s}.}
+
+\item{Lambda}{numeric matrix of current species loadings with \eqn{s} rows
+and \eqn{d} columns (row \code{j} = loadings for species \code{j}).}
+
+\item{phi}{numeric vector or scalar of current dispersion/scale parameters
+(one per species when applicable).}
+
+\item{pi}{numeric vector of archetype mixing proportions (length \eqn{g});
+included for API consistency but not used directly in this update.}
+
+\item{tau}{numeric matrix of posterior species-to-archetype probabilities
+with dimension \eqn{s \times g} (rows = species, columns = archetypes).}
+
+\item{family}{a \pkg{stats}-style family object (e.g., \code{gaussian()},
+\code{binomial()}, \code{poisson()}) used for the GLM fits.}
+
+\item{psi2}{numeric nonnegative scalar penalty tuning parameter applied to
+species loadings (ridge penalty). Default \code{0} (no penalty).}
+
+\item{maxit}{integer maximum number of IRLS iterations passed to the
+internal \code{\link{penalized_glm_fit}} call (default \code{1}).}
 }
-\keyword{internal}
+\value{
+A named list with components:
+\describe{
+\item{\code{beta0}}{numeric vector of updated species intercepts (length \eqn{s}).}
+\item{\code{Lambda}}{numeric matrix of updated species loadings (dimension \eqn{s \times d}).}
+\item{\code{phi}}{numeric vector of updated dispersion/scale parameters (length \eqn{s}) when applicable.}
+}
+}
+\description{
+Perform the conditional M-step that updates species-specific parameters in
+the Correlated Species Archetype Model (CSAM). For each species \(j\) the
+function stacks observations across archetypes and fits a weighted,
+penalized GLM to update the species intercept \eqn{\beta_{0j}} and species
+loadings \eqn{\lambda_j} (row \code{j} of \code{Lambda}). The posterior
+species-to-archetype probabilities \eqn{\tau_{jk}} are used as observation
+weights and the archetype fixed-effects contribution is included as an
+offset.
+}
+\details{
+For each species \code{j} the function constructs a stacked dataset of
+length \eqn{n g} by repeating the site responses and design for each
+archetype. The stacked design has an intercept column and the site latent
+variables \code{U} as covariates; the archetype contribution
+\eqn{X B_k}, is included as an observation-level offset for rows
+corresponding to archetype \code{k}. Observation weights are given by
+\eqn{\tau_{jk}}. A penalized GLM is fitted via \code{\link{penalized_glm_fit}}
+with penalty weights \code{c(0, rep(1, d))} so that the intercept is
+unpenalized while the loadings receive a ridge penalty scaled by
+\code{psi2}. When \code{family$family == "gaussian"} the species-specific
+dispersion \eqn{\phi_j} is re-estimated as the weighted mean squared error
+using the IRLS weights.
+
+The function returns the updated \code{beta0}, \code{Lambda} and \code{phi}
+which can be used in subsequent EM iterations.
+}
+\examples{
+set.seed(42)
+n <- 40; s <- 6; p <- 2; d <- 2; g <- 3
+X <- matrix(rnorm(n * p), n, p)
+U <- matrix(rnorm(n * d), n, d)
+B <- matrix(rnorm(g * p), g, p)
+beta0 <- rnorm(s)
+Lambda <- matrix(rnorm(s * d), s, d)
+pi <- rep(1/g, g)
+Y <- matrix(rnorm(n * s), n, s)
+tau <- matrix(runif(s * g), s, g); tau <- tau / rowSums(tau)
+res <- mstep_species_pars(Y, X, B, U, beta0, Lambda, phi = rep(1, s),
+                          pi, tau, family = gaussian(), psi2 = 0.1, maxit = 2)
+str(res)
+
+}
+\seealso{
+\code{\link{penalized_glm_fit}}, \code{\link{mstep_arch_pars}},
+\code{\link{estep_post_probs}}
+}

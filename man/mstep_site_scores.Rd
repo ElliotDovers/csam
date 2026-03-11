@@ -2,7 +2,7 @@
 % Please edit documentation in R/csam-helpers.R
 \name{mstep_site_scores}
 \alias{mstep_site_scores}
-\title{M-step: site scores (internal)}
+\title{M-step: update site scores (latent site covariates) for CSAM}
 \usage{
 mstep_site_scores(
   Y,
@@ -19,7 +19,94 @@ mstep_site_scores(
   maxit = 1
 )
 }
-\description{
-M-step: site scores (internal)
+\arguments{
+\item{Y}{\strong{numeric matrix} of species responses with \eqn{n} rows (sites)
+and \eqn{s} columns (species).}
+
+\item{X}{\strong{numeric matrix} design matrix with \eqn{n} rows (sites) and
+\eqn{p} columns (environmental covariates).}
+
+\item{B}{\strong{numeric matrix} of archetype regression coefficients with
+\eqn{g} rows and \eqn{p} columns (row \code{k} = coefficients for archetype \code{k}).}
+
+\item{beta0}{\strong{numeric} vector of species intercepts of length \eqn{s}.}
+
+\item{Lambda}{\strong{numeric matrix} of species loadings with \eqn{s} rows and
+\eqn{d} columns (row \code{j} = loadings for species \code{j}).}
+
+\item{U}{\strong{numeric matrix} of current latent site covariates with
+\eqn{n} rows and \eqn{d} columns (row \code{i} = site \code{i} scores).}
+
+\item{phi}{\strong{numeric} dispersion/scale parameter (kept for API compatibility;
+not used directly by this function).}
+
+\item{pi}{\strong{numeric} vector of archetype mixing proportions (length \eqn{g});
+included for API consistency but not used directly in this update.}
+
+\item{tau}{\strong{numeric matrix} of posterior species-to-archetype probabilities
+with dimension \eqn{s \times g} (rows = species, columns = archetypes).}
+
+\item{family}{a \pkg{stats}-style family object (for example
+\code{gaussian()}, \code{binomial()}, \code{poisson()}). The function
+uses \code{family$linkinv}, \code{family$dev.resids} and related methods
+via the internal GLM solver.}
+
+\item{psi1}{\strong{numeric} nonnegative scalar penalty tuning parameter applied
+to site scores (ridge penalty). Default \code{0} (no penalty).}
+
+\item{maxit}{\strong{integer} maximum number of IRLS iterations passed to the
+internal \code{\link{penalized_glm_fit}} call (default \code{1}).}
 }
-\keyword{internal}
+\value{
+A numeric matrix of the same dimension as \code{U} (\eqn{n \times d})
+containing the updated site scores (row \code{i} = updated scores for site \code{i}).
+}
+\description{
+Update site-level latent variables \code{U} (site scores) in the conditional
+M-step of the Correlated Species Archetype Model (CSAM). For each site the
+function stacks species-by-archetype observations and fits a penalized GLM
+to update the site's latent coordinates. Species loadings \code{Lambda}
+serve as covariates in the per-site regression, archetype contributions
+\code{X \%*\% B\link{k, }} enter as offsets, and posterior species-to-archetype
+probabilities \eqn{\tau_{jk}} provide observation weights.
+}
+\details{
+For each site \code{i} the function constructs a stacked dataset of length
+\eqn{s g} by iterating over species \code{j} and archetypes \code{k}. The
+stacked design matrix uses the species loadings \eqn{\lambda_j} (row
+\code{j} of \code{Lambda}) as covariates; the archetype contribution
+\eqn{X[i, ] B_k}, and species intercept \eqn{\beta_{0j}} are included as
+an observation-level offset. Observation weights are given by
+\eqn{\tau_{jk}}. A penalized GLM is fitted via \code{\link{penalized_glm_fit}}
+with penalty weights \code{rep(1, d)} so that all dimensions of the site
+score receive a ridge penalty scaled by \code{psi1}. The fitted
+coefficients replace the corresponding row of \code{U}.
+
+This conditional update treats each site independently and is typically
+used inside an outer EM loop that alternates E- and M-steps for CSAM.
+}
+\examples{
+set.seed(123)
+n <- 30; s <- 5; p <- 2; d <- 2; g <- 3
+X <- matrix(rnorm(n * p), n, p)
+B <- matrix(rnorm(g * p), g, p)
+beta0 <- rnorm(s)
+Lambda <- matrix(rnorm(s * d), s, d)
+U <- matrix(rnorm(n * d), n, d)
+pi <- rep(1/g, g)
+Y <- matrix(rnorm(n * s), n, s)
+tau <- matrix(runif(s * g), s, g); tau <- tau / rowSums(tau)
+U_upd <- mstep_site_scores(Y, X, B, beta0, Lambda, U, phi = 1, pi, tau,
+                           family = gaussian(), psi1 = 0.1, maxit = 2)
+dim(U_upd)  # n x d
+
+}
+\seealso{
+\code{\link{penalized_glm_fit}}, \code{\link{mstep_arch_pars}},
+\code{\link{mstep_species_pars}}, \code{\link{estep_post_probs}}
+}
+\keyword{csam}
+\keyword{latent}
+\keyword{mstep}
+\keyword{penalized}
+\keyword{site}

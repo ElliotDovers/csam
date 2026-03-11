@@ -2,7 +2,7 @@
 % Please edit documentation in R/csam-helpers.R
 \name{estep_post_probs}
 \alias{estep_post_probs}
-\title{E-step posterior probabilities (internal)}
+\title{E-step: posterior probabilities for Correlated Species Archetype Models (CSAM)}
 \usage{
 estep_post_probs(
   Y,
@@ -17,7 +17,85 @@ estep_post_probs(
   trunc.interval = FALSE
 )
 }
-\description{
-E-step posterior probabilities (internal)
+\arguments{
+\item{Y}{numeric matrix of species responses with \eqn{n} rows (sites) and
+\eqn{s} columns (species).}
+
+\item{X}{numeric design matrix with \eqn{n} rows (sites) and \eqn{p}
+columns (environmental covariates).}
+
+\item{beta0}{numeric vector of length \eqn{s} of species-specific intercepts.}
+
+\item{B}{numeric matrix of archetype-specific coefficients with \eqn{g}
+rows and \eqn{p} columns (row \code{k} = coefficients for archetype \code{k}).}
+
+\item{U}{numeric matrix of latent site covariates with \eqn{n} rows and
+\eqn{r} columns.}
+
+\item{Lambda}{numeric matrix of species loadings with \eqn{s} rows and
+\eqn{r} columns; row \code{j} contains loadings for species \code{j}.}
+
+\item{phi}{numeric dispersion/scale parameter (kept for API compatibility;
+not used directly by this function).}
+
+\item{pi}{numeric vector of length \eqn{g} of prior archetype mixing
+proportions (positive, need not be normalized).}
+
+\item{family}{a \pkg{stats}-style family object (e.g., \code{gaussian()},
+\code{binomial()}, \code{poisson()}). The function uses
+\code{family$linkinv}, \code{family$dev.resids} and \code{family$aic}.}
+
+\item{trunc.interval}{logical; if \code{TRUE} apply a deterministic
+truncation/rescaling transform to posterior probabilities (default
+\code{FALSE}).}
 }
-\keyword{internal}
+\value{
+A numeric matrix of dimension \eqn{s \times g} (species by
+archetypes). Row \code{j} contains posterior probabilities
+\eqn{\tau_{j1},\dots,\tau_{jg}} for species \code{j}. Rows sum to 1
+unless \code{trunc.interval = TRUE}, in which case a deterministic
+rescaling is applied columnwise.
+}
+\description{
+Compute posterior membership probabilities for each species to archetypes
+in the E-step of the EM algorithm used by the \pkg{csam} package. For each
+species \(j\) and archetype \(k\) the function evaluates the archetype-
+specific GLM log-likelihood under the supplied \code{family}, adds the log
+mixing proportion \code{log(pi[k])}, and normalizes across archetypes to
+produce posterior probabilities \eqn{\tau_{jk}}. An observation-level
+offset is constructed from latent site covariates \code{U} and species
+loadings \code{Lambda} to capture residual correlation among species.
+}
+\details{
+In the CSAM notation used by \pkg{csam}, the linear predictor for species
+\code{j} under archetype \code{k} is
+\deqn{\eta_{jk} = \beta_{0j} + X B_{k} + U \lambda_{j},}
+where \eqn{\lambda_j} is row \code{j} of \code{Lambda}. Per-observation
+deviance/AIC-based log-likelihood contributions are obtained from
+\code{family} and summed across sites to form \code{loglik_mat[j,k]}. The
+posterior log-probabilities are \code{loglik_mat + log(pi)} and are
+stabilized by subtracting the row-wise maximum before exponentiating and
+normalizing.
+
+The optional \code{trunc.interval} transform rescales each column of the
+posterior matrix using the fixed formula implemented in the code; this is
+a heuristic post-processing step used in some CSAM fitting routines.
+}
+\examples{
+set.seed(1)
+n <- 60; s <- 5; p <- 3; r <- 2; g <- 2
+X <- matrix(rnorm(n * p), n, p)
+U <- matrix(rnorm(n * r), n, r)
+B <- matrix(rnorm(g * p), g, p)
+beta0 <- rnorm(s)
+Lambda <- matrix(rnorm(s * r), s, r)
+pi <- c(0.7, 0.3)
+Y <- matrix(rnorm(n * s), n, s)
+tau <- estep_post_probs(Y, X, beta0, B, U, Lambda, phi = 1, pi,
+                        family = gaussian(), trunc.interval = FALSE)
+dim(tau)  # s x g: species by archetypes
+
+}
+\seealso{
+\code{\link[stats]{family}}
+}

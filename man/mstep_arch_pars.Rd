@@ -2,11 +2,86 @@
 % Please edit documentation in R/csam-helpers.R
 \name{mstep_arch_pars}
 \alias{mstep_arch_pars}
-\title{M-step: archetype parameters (internal)}
+\title{M-step: update archetype (archetype-level) regression coefficients for CSAM}
 \usage{
 mstep_arch_pars(Y, X, beta0, B, U, Lambda, phi, pi, tau, family, maxit = 1)
 }
-\description{
-M-step: archetype parameters (internal)
+\arguments{
+\item{Y}{numeric matrix of species responses with \eqn{n} rows (sites) and
+\eqn{s} columns (species).}
+
+\item{X}{numeric design matrix with \eqn{n} rows (sites) and \eqn{p}
+columns (environmental covariates).}
+
+\item{beta0}{numeric vector of length \eqn{s} of species-specific intercepts.}
+
+\item{B}{numeric matrix of current archetype coefficients with \eqn{g}
+rows and \eqn{p} columns; row \code{k} contains coefficients for archetype \code{k}.}
+
+\item{U}{numeric matrix of latent site covariates with \eqn{n} rows and
+\eqn{r} columns.}
+
+\item{Lambda}{numeric matrix of species loadings with \eqn{s} rows and
+\eqn{r} columns.}
+
+\item{phi}{numeric dispersion/scale parameter (kept for API compatibility;
+not used directly by this function).}
+
+\item{pi}{numeric vector of length \eqn{g} of prior archetype mixing
+proportions (not used directly by this update but part of the model state).}
+
+\item{tau}{numeric matrix of posterior species-to-archetype probabilities
+with dimension \eqn{s \times g} (rows = species, columns = archetypes).}
+
+\item{family}{a \pkg{stats}-style family object (e.g., \code{gaussian()},
+\code{binomial()}, \code{poisson()}) used for the GLM fits.}
+
+\item{maxit}{integer maximum number of iterations passed to the internal
+\code{\link[stats]{glm.fit}} call (default \code{1}). A small number of
+iterations is typical because this is a conditional update inside EM.}
 }
-\keyword{internal}
+\value{
+A numeric matrix with the same dimensions as \code{B} containing
+the updated archetype regression coefficients.
+}
+\description{
+Update archetype-specific regression coefficients \(B\) in the conditional
+M-step of the Correlated Species Archetype Model (CSAM) EM algorithm.
+Given current species intercepts, site latent variables and species
+loadings, and posterior species-to-archetype probabilities \eqn{\tau},
+this function fits a weighted GLM for each archetype by stacking species
+observations and using \eqn{\tau_{jk}} as observation weights.
+}
+\details{
+The update proceeds archetype-by-archetype. For archetype \code{k} the
+function stacks all species' responses and design matrices into a single
+long vector/matrix of length \eqn{n s} and fits a weighted GLM with
+observation-level offsets equal to \eqn{\beta_{0j} + U \lambda_j} for the
+block of rows corresponding to species \code{j}. The weights for rows
+corresponding to species \code{j} are given by \eqn{\tau_{jk}}. The fitted
+coefficients for archetype \code{k} replace the corresponding row of
+\code{B}.
+
+The implementation uses \code{stats::glm.fit} and suppresses warnings
+about non-convergence because only a small number of iterations is
+typically requested inside the EM loop.
+}
+\examples{
+set.seed(1)
+n <- 50; s <- 4; p <- 3; r <- 2; g <- 2
+X <- matrix(rnorm(n * p), n, p)
+U <- matrix(rnorm(n * r), n, r)
+B <- matrix(rnorm(g * p), g, p)
+beta0 <- rnorm(s)
+Lambda <- matrix(rnorm(s * r), s, r)
+pi <- c(0.6, 0.4)
+Y <- matrix(rnorm(n * s), n, s)
+tau <- matrix(runif(s * g), s, g)
+tau <- tau / rowSums(tau)
+B_upd <- mstep_arch_pars(Y, X, beta0, B, U, Lambda, phi = 1, pi, tau,
+                         family = gaussian(), maxit = 1)
+
+}
+\seealso{
+\code{\link[stats]{glm.fit}}, \code{\link{estep_post_probs}}
+}

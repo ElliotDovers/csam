@@ -96,8 +96,17 @@ csam <- function(Y, X, g = 3, d = 2, family = poisson(),
 
   n <- nrow(Y); s <- ncol(Y); p <- ncol(X)
 
-  beta0 <- if (!is.null(init$beta0)) init$beta0 else
-    apply(Y, 2, function(col) family$linkfun(mean(col + 0.1)))
+  safe_mean <- function(x) {
+    m <- mean(x, na.rm = TRUE)
+    eps <- 1e-6
+    if (family$family == "binomial") m <- pmin(pmax(m, eps), 1 - eps)
+    if (family$family == "poisson") m <- pmax(m, eps)
+    if (family$family == "gaussian") m <- m
+    family$linkfun(m)
+  }
+  beta0 <- if (!is.null(init$beta0)) init$beta0 else apply(Y, 2, safe_mean)
+  # beta0 <- if (!is.null(init$beta0)) init$beta0 else
+  #   apply(Y, 2, function(col) family$linkfun(mean(col + 0.1)))
   B      <- if (!is.null(init$B))     init$B     else matrix(rnorm(g * p, 0, 0.1), g, p)
   pi     <- if (!is.null(init$pi))    init$pi    else rep(1 / g, g)
   U      <- if (!is.null(init$U))     init$U     else matrix(rnorm(n * d, 0, 0.1), n, d)
@@ -193,6 +202,11 @@ csam <- function(Y, X, g = 3, d = 2, family = poisson(),
     }
 
     pll <- ll - 0.5 * psi1 * sum(U^2) - 0.5 * psi2 * sum(Lambda^2)
+
+    if (!is.finite(pll)) {
+      warning("penalized log-likelihood became non-finite; stopping")
+      break
+    }
 
     if (verbose) {
       cat(sprintf("Iter %3d: penalized log-lik = %.6f\n", iter, pll))

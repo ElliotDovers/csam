@@ -2,7 +2,7 @@
 % Please edit documentation in R/csam-helpers.R
 \name{penalized_glm_fit}
 \alias{penalized_glm_fit}
-\title{Penalized GLM fit (internal)}
+\title{Fit a penalized generalized linear model by penalized IRLS}
 \usage{
 penalized_glm_fit(
   X,
@@ -18,7 +18,98 @@ penalized_glm_fit(
   verbose = FALSE
 )
 }
-\description{
-Penalized GLM fit (internal)
+\arguments{
+\item{X}{\strong{matrix} of predictors with \eqn{n} rows (observations) and
+\eqn{p} columns (features).}
+
+\item{y}{\strong{numeric} response vector of length \eqn{n}.}
+
+\item{weights}{\strong{numeric} optional observation weights of length \eqn{n}.
+Defaults to \code{rep(1, n)}.}
+
+\item{offset}{\strong{numeric} optional offset vector of length \eqn{n}.
+Defaults to \code{rep(0, n)}.}
+
+\item{penalty_weights}{\strong{numeric} nonnegative vector of length \eqn{p}
+giving diagonal entries of the penalty matrix \code{P}. Defaults to
+\code{rep(0, p)} (no penalty).}
+
+\item{lambda}{\strong{numeric} nonnegative scalar that scales the penalty matrix.
+Defaults to \code{0} (no penalty).}
+
+\item{family}{a \pkg{stats}-style family object (for example
+\code{gaussian()}, \code{binomial()}, \code{poisson()}). The function
+uses \code{family$linkinv}, \code{family$mu.eta} and
+\code{family$variance}. Default is \code{gaussian()}.}
+
+\item{start}{\strong{numeric} optional starting values for the coefficients of
+length \eqn{p}. If \code{NULL} (default) coefficients are initialized to
+zero. A length mismatch raises an error.}
+
+\item{maxit}{\strong{integer} maximum number of IRLS iterations. Default is
+\code{50}.}
+
+\item{tol}{\strong{numeric} convergence tolerance on the maximum absolute change
+in coefficients between iterations. Default is \code{1e-6}.}
+
+\item{verbose}{\strong{logical} if \code{TRUE} prints iteration progress.
+Default is \code{FALSE}.}
 }
-\keyword{internal}
+\value{
+A \code{list} with components:
+\describe{
+\item{\code{coefficients}}{numeric vector of length \eqn{p} with fitted
+regression coefficients.}
+\item{\code{eta}}{numeric vector of linear predictors \eqn{X \beta + offset}.}
+\item{\code{mu}}{numeric vector of fitted means \eqn{g^{-1}(\eta)} where
+\eqn{g^{-1}} is the family link inverse.}
+}
+}
+\description{
+Fit a generalized linear model with a quadratic penalty on coefficients
+using an iteratively reweighted least squares (IRLS) approach. The penalty
+is specified via a diagonal penalty weight vector and a scalar tuning
+parameter \code{lambda}; the effective penalty matrix is
+\eqn{\sqrt{\lambda}\,P} where \code{P} = diag(\code{penalty_weights}).
+}
+\details{
+The algorithm performs IRLS where, at each iteration, a weighted least
+squares problem with augmented rows is solved:
+\preformatted{
+  A = rbind(sqrt(W) * X, sqrt(lambda) * P)
+  b = c(sqrt(W) * z, rep(0, p))
+}
+where \code{W} are the IRLS weights and \code{z} is the working response.
+The penalty matrix \code{P} is diagonal with entries given by
+\code{penalty_weights}. When \code{lambda == 0} or all
+\code{penalty_weights == 0} the fit reduces to an unpenalized IRLS fit.
+
+If \code{start} is provided it must have length equal to the number of
+columns of \code{X}; otherwise an error is raised.
+}
+\examples{
+## Gaussian example
+set.seed(1)
+n <- 100; p <- 5
+X <- matrix(rnorm(n * p), n, p)
+beta_true <- c(1, -0.5, 0, 0, 0)
+y <- X \%*\% beta_true + rnorm(n)
+fit <- penalized_glm_fit(X, y, lambda = 1, penalty_weights = c(0, 1, 1, 1, 1))
+print(fit$coefficients)
+
+## Binomial example (logit link)
+set.seed(2)
+n <- 200; p <- 3
+X <- matrix(rnorm(n * p), n, p)
+beta_true <- c(0.5, -1, 0.2)
+eta <- X \%*\% beta_true
+p_true <- 1 / (1 + exp(-eta))
+y_bin <- rbinom(n, size = 1, prob = p_true)
+fit_bin <- penalized_glm_fit(X, y_bin, family = binomial(), lambda = 0.5,
+                             penalty_weights = rep(1, p))
+head(fit_bin$mu)
+
+}
+\seealso{
+\code{\link[stats]{glm}}, \code{\link[stats]{family}}
+}

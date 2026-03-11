@@ -1,6 +1,85 @@
-#' Penalized GLM fit (internal)
+#' Fit a penalized generalized linear model by penalized IRLS
 #'
-#' @keywords internal
+#' Fit a generalized linear model with a quadratic penalty on coefficients
+#' using an iteratively reweighted least squares (IRLS) approach. The penalty
+#' is specified via a diagonal penalty weight vector and a scalar tuning
+#' parameter \code{lambda}; the effective penalty matrix is
+#' \eqn{\sqrt{\lambda}\,P} where \code{P} = diag(\code{penalty_weights}).
+#'
+#' @param X **matrix** of predictors with \eqn{n} rows (observations) and
+#'   \eqn{p} columns (features).
+#' @param y **numeric** response vector of length \eqn{n}.
+#' @param weights **numeric** optional observation weights of length \eqn{n}.
+#'   Defaults to \code{rep(1, n)}.
+#' @param offset **numeric** optional offset vector of length \eqn{n}.
+#'   Defaults to \code{rep(0, n)}.
+#' @param penalty_weights **numeric** nonnegative vector of length \eqn{p}
+#'   giving diagonal entries of the penalty matrix \code{P}. Defaults to
+#'   \code{rep(0, p)} (no penalty).
+#' @param lambda **numeric** nonnegative scalar that scales the penalty matrix.
+#'   Defaults to \code{0} (no penalty).
+#' @param family a \pkg{stats}-style family object (for example
+#'   \code{gaussian()}, \code{binomial()}, \code{poisson()}). The function
+#'   uses \code{family$linkinv}, \code{family$mu.eta} and
+#'   \code{family$variance}. Default is \code{gaussian()}.
+#' @param start **numeric** optional starting values for the coefficients of
+#'   length \eqn{p}. If \code{NULL} (default) coefficients are initialized to
+#'   zero. A length mismatch raises an error.
+#' @param maxit **integer** maximum number of IRLS iterations. Default is
+#'   \code{50}.
+#' @param tol **numeric** convergence tolerance on the maximum absolute change
+#'   in coefficients between iterations. Default is \code{1e-6}.
+#' @param verbose **logical** if \code{TRUE} prints iteration progress.
+#'   Default is \code{FALSE}.
+#'
+#' @return A \code{list} with components:
+#' \describe{
+#'   \item{\code{coefficients}}{numeric vector of length \eqn{p} with fitted
+#'     regression coefficients.}
+#'   \item{\code{eta}}{numeric vector of linear predictors \eqn{X \beta + offset}.}
+#'   \item{\code{mu}}{numeric vector of fitted means \eqn{g^{-1}(\eta)} where
+#'     \eqn{g^{-1}} is the family link inverse.}
+#' }
+#'
+#' @details
+#' The algorithm performs IRLS where, at each iteration, a weighted least
+#' squares problem with augmented rows is solved:
+#' \preformatted{
+#'   A = rbind(sqrt(W) * X, sqrt(lambda) * P)
+#'   b = c(sqrt(W) * z, rep(0, p))
+#' }
+#' where \code{W} are the IRLS weights and \code{z} is the working response.
+#' The penalty matrix \code{P} is diagonal with entries given by
+#' \code{penalty_weights}. When \code{lambda == 0} or all
+#' \code{penalty_weights == 0} the fit reduces to an unpenalized IRLS fit.
+#'
+#' If \code{start} is provided it must have length equal to the number of
+#' columns of \code{X}; otherwise an error is raised.
+#'
+#' @examples
+#' ## Gaussian example
+#' set.seed(1)
+#' n <- 100; p <- 5
+#' X <- matrix(rnorm(n * p), n, p)
+#' beta_true <- c(1, -0.5, 0, 0, 0)
+#' y <- X %*% beta_true + rnorm(n)
+#' fit <- penalized_glm_fit(X, y, lambda = 1, penalty_weights = c(0, 1, 1, 1, 1))
+#' print(fit$coefficients)
+#'
+#' ## Binomial example (logit link)
+#' set.seed(2)
+#' n <- 200; p <- 3
+#' X <- matrix(rnorm(n * p), n, p)
+#' beta_true <- c(0.5, -1, 0.2)
+#' eta <- X %*% beta_true
+#' p_true <- 1 / (1 + exp(-eta))
+#' y_bin <- rbinom(n, size = 1, prob = p_true)
+#' fit_bin <- penalized_glm_fit(X, y_bin, family = binomial(), lambda = 0.5,
+#'                              penalty_weights = rep(1, p))
+#' head(fit_bin$mu)
+#'
+#' @seealso \code{\link[stats]{glm}}, \code{\link[stats]{family}}
+#' @export
 penalized_glm_fit <- function(X, y, weights = NULL, offset = NULL,
                               penalty_weights = NULL, lambda = 0,
                               family = gaussian(), start = NULL,
@@ -13,6 +92,7 @@ penalized_glm_fit <- function(X, y, weights = NULL, offset = NULL,
   if (is.null(offset)) offset <- rep(0, n)
   if (is.null(penalty_weights)) penalty_weights <- rep(0, p)
 
+  if (length(penalty_weights) != p) {stop("penalty_weights must have length p")}
   P <- diag(penalty_weights, p, p)
 
   linkinv  <- family$linkinv
@@ -49,6 +129,12 @@ penalized_glm_fit <- function(X, y, weights = NULL, offset = NULL,
     qrA <- qr(A)
     beta_new <- qr.coef(qrA, b)
 
+    if (any(is.na(beta_new)) || any(!is.finite(beta_new))) {
+      warning("penalized_glm_fit: unstable QR solution; returning previous coefficients")
+      beta_new <- beta
+      break
+    }
+
     eta_new <- as.vector(X %*% beta_new + offset)
     mu_new  <- linkinv(eta_new)
 
@@ -65,9 +151,76 @@ penalized_glm_fit <- function(X, y, weights = NULL, offset = NULL,
   list(coefficients = beta, eta = eta, mu = mu)
 }
 
-#' E-step posterior probabilities (internal)
+#' E-step: posterior probabilities for Correlated Species Archetype Models (CSAM)
 #'
-#' @keywords internal
+#' Compute posterior membership probabilities for each species to archetypes
+#' in the E-step of the EM algorithm used by the \pkg{csam} package. For each
+#' species \(j\) and archetype \(k\) the function evaluates the archetype-
+#' specific GLM log-likelihood under the supplied \code{family}, adds the log
+#' mixing proportion \code{log(pi[k])}, and normalizes across archetypes to
+#' produce posterior probabilities \eqn{\tau_{jk}}. An observation-level
+#' offset is constructed from latent site covariates \code{U} and species
+#' loadings \code{Lambda} to capture residual correlation among species.
+#'
+#' @param Y numeric matrix of species responses with \eqn{n} rows (sites) and
+#'   \eqn{s} columns (species).
+#' @param X numeric design matrix with \eqn{n} rows (sites) and \eqn{p}
+#'   columns (environmental covariates).
+#' @param beta0 numeric vector of length \eqn{s} of species-specific intercepts.
+#' @param B numeric matrix of archetype-specific coefficients with \eqn{g}
+#'   rows and \eqn{p} columns (row \code{k} = coefficients for archetype \code{k}).
+#' @param U numeric matrix of latent site covariates with \eqn{n} rows and
+#'   \eqn{r} columns.
+#' @param Lambda numeric matrix of species loadings with \eqn{s} rows and
+#'   \eqn{r} columns; row \code{j} contains loadings for species \code{j}.
+#' @param phi numeric dispersion/scale parameter (kept for API compatibility;
+#'   not used directly by this function).
+#' @param pi numeric vector of length \eqn{g} of prior archetype mixing
+#'   proportions (positive, need not be normalized).
+#' @param family a \pkg{stats}-style family object (e.g., \code{gaussian()},
+#'   \code{binomial()}, \code{poisson()}). The function uses
+#'   \code{family$linkinv}, \code{family$dev.resids} and \code{family$aic}.
+#' @param trunc.interval logical; if \code{TRUE} apply a deterministic
+#'   truncation/rescaling transform to posterior probabilities (default
+#'   \code{FALSE}).
+#'
+#' @return A numeric matrix of dimension \eqn{s \times g} (species by
+#'   archetypes). Row \code{j} contains posterior probabilities
+#'   \eqn{\tau_{j1},\dots,\tau_{jg}} for species \code{j}. Rows sum to 1
+#'   unless \code{trunc.interval = TRUE}, in which case a deterministic
+#'   rescaling is applied columnwise.
+#'
+#' @details
+#' In the CSAM notation used by \pkg{csam}, the linear predictor for species
+#' \code{j} under archetype \code{k} is
+#' \deqn{\eta_{jk} = \beta_{0j} + X B_{k} + U \lambda_{j},}
+#' where \eqn{\lambda_j} is row \code{j} of \code{Lambda}. Per-observation
+#' deviance/AIC-based log-likelihood contributions are obtained from
+#' \code{family} and summed across sites to form \code{loglik_mat[j,k]}. The
+#' posterior log-probabilities are \code{loglik_mat + log(pi)} and are
+#' stabilized by subtracting the row-wise maximum before exponentiating and
+#' normalizing.
+#'
+#' The optional \code{trunc.interval} transform rescales each column of the
+#' posterior matrix using the fixed formula implemented in the code; this is
+#' a heuristic post-processing step used in some CSAM fitting routines.
+#'
+#' @examples
+#' set.seed(1)
+#' n <- 60; s <- 5; p <- 3; r <- 2; g <- 2
+#' X <- matrix(rnorm(n * p), n, p)
+#' U <- matrix(rnorm(n * r), n, r)
+#' B <- matrix(rnorm(g * p), g, p)
+#' beta0 <- rnorm(s)
+#' Lambda <- matrix(rnorm(s * r), s, r)
+#' pi <- c(0.7, 0.3)
+#' Y <- matrix(rnorm(n * s), n, s)
+#' tau <- estep_post_probs(Y, X, beta0, B, U, Lambda, phi = 1, pi,
+#'                         family = gaussian(), trunc.interval = FALSE)
+#' dim(tau)  # s x g: species by archetypes
+#'
+#' @seealso \code{\link[stats]{family}}
+#' @export
 estep_post_probs <- function(Y, X, beta0, B, U, Lambda, phi, pi, family,
                              trunc.interval = FALSE) {
 
@@ -105,9 +258,72 @@ estep_post_probs <- function(Y, X, beta0, B, U, Lambda, phi, pi, family,
   tau
 }
 
-#' M-step: archetype parameters (internal)
+#' M-step: update archetype (archetype-level) regression coefficients for CSAM
 #'
-#' @keywords internal
+#' Update archetype-specific regression coefficients \(B\) in the conditional
+#' M-step of the Correlated Species Archetype Model (CSAM) EM algorithm.
+#' Given current species intercepts, site latent variables and species
+#' loadings, and posterior species-to-archetype probabilities \eqn{\tau},
+#' this function fits a weighted GLM for each archetype by stacking species
+#' observations and using \eqn{\tau_{jk}} as observation weights.
+#'
+#' @param Y numeric matrix of species responses with \eqn{n} rows (sites) and
+#'   \eqn{s} columns (species).
+#' @param X numeric design matrix with \eqn{n} rows (sites) and \eqn{p}
+#'   columns (environmental covariates).
+#' @param beta0 numeric vector of length \eqn{s} of species-specific intercepts.
+#' @param B numeric matrix of current archetype coefficients with \eqn{g}
+#'   rows and \eqn{p} columns; row \code{k} contains coefficients for archetype \code{k}.
+#' @param U numeric matrix of latent site covariates with \eqn{n} rows and
+#'   \eqn{r} columns.
+#' @param Lambda numeric matrix of species loadings with \eqn{s} rows and
+#'   \eqn{r} columns.
+#' @param phi numeric dispersion/scale parameter (kept for API compatibility;
+#'   not used directly by this function).
+#' @param pi numeric vector of length \eqn{g} of prior archetype mixing
+#'   proportions (not used directly by this update but part of the model state).
+#' @param tau numeric matrix of posterior species-to-archetype probabilities
+#'   with dimension \eqn{s \times g} (rows = species, columns = archetypes).
+#' @param family a \pkg{stats}-style family object (e.g., \code{gaussian()},
+#'   \code{binomial()}, \code{poisson()}) used for the GLM fits.
+#' @param maxit integer maximum number of iterations passed to the internal
+#'   \code{\link[stats]{glm.fit}} call (default \code{1}). A small number of
+#'   iterations is typical because this is a conditional update inside EM.
+#'
+#' @return A numeric matrix with the same dimensions as \code{B} containing
+#'   the updated archetype regression coefficients.
+#'
+#' @details
+#' The update proceeds archetype-by-archetype. For archetype \code{k} the
+#' function stacks all species' responses and design matrices into a single
+#' long vector/matrix of length \eqn{n s} and fits a weighted GLM with
+#' observation-level offsets equal to \eqn{\beta_{0j} + U \lambda_j} for the
+#' block of rows corresponding to species \code{j}. The weights for rows
+#' corresponding to species \code{j} are given by \eqn{\tau_{jk}}. The fitted
+#' coefficients for archetype \code{k} replace the corresponding row of
+#' \code{B}.
+#'
+#' The implementation uses \code{stats::glm.fit} and suppresses warnings
+#' about non-convergence because only a small number of iterations is
+#' typically requested inside the EM loop.
+#'
+#' @examples
+#' set.seed(1)
+#' n <- 50; s <- 4; p <- 3; r <- 2; g <- 2
+#' X <- matrix(rnorm(n * p), n, p)
+#' U <- matrix(rnorm(n * r), n, r)
+#' B <- matrix(rnorm(g * p), g, p)
+#' beta0 <- rnorm(s)
+#' Lambda <- matrix(rnorm(s * r), s, r)
+#' pi <- c(0.6, 0.4)
+#' Y <- matrix(rnorm(n * s), n, s)
+#' tau <- matrix(runif(s * g), s, g)
+#' tau <- tau / rowSums(tau)
+#' B_upd <- mstep_arch_pars(Y, X, beta0, B, U, Lambda, phi = 1, pi, tau,
+#'                          family = gaussian(), maxit = 1)
+#'
+#' @seealso \code{\link[stats]{glm.fit}}, \code{\link{estep_post_probs}}
+#' @export
 mstep_arch_pars <- function(Y, X, beta0, B, U, Lambda, phi, pi, tau,
                             family, maxit = 1) {
 
@@ -144,9 +360,83 @@ mstep_arch_pars <- function(Y, X, beta0, B, U, Lambda, phi, pi, tau,
   B_new
 }
 
-#' M-step: species parameters (internal)
+#' M-step: update species-level parameters for CSAM (species intercepts, loadings, dispersion)
 #'
-#' @keywords internal
+#' Perform the conditional M-step that updates species-specific parameters in
+#' the Correlated Species Archetype Model (CSAM). For each species \(j\) the
+#' function stacks observations across archetypes and fits a weighted,
+#' penalized GLM to update the species intercept \eqn{\beta_{0j}} and species
+#' loadings \eqn{\lambda_j} (row \code{j} of \code{Lambda}). The posterior
+#' species-to-archetype probabilities \eqn{\tau_{jk}} are used as observation
+#' weights and the archetype fixed-effects contribution is included as an
+#' offset.
+#'
+#' @param Y numeric matrix of species responses with \eqn{n} rows (sites) and
+#'   \eqn{s} columns (species).
+#' @param X numeric design matrix with \eqn{n} rows (sites) and \eqn{p}
+#'   columns (environmental covariates). Used to compute archetype offsets.
+#' @param B numeric matrix of archetype regression coefficients with \eqn{g}
+#'   rows and \eqn{p} columns (row \code{k} = coefficients for archetype \code{k}).
+#' @param U numeric matrix of latent site covariates with \eqn{n} rows and
+#'   \eqn{d} columns (site-level latent variables).
+#' @param beta0 numeric vector of current species intercepts of length \eqn{s}.
+#' @param Lambda numeric matrix of current species loadings with \eqn{s} rows
+#'   and \eqn{d} columns (row \code{j} = loadings for species \code{j}).
+#' @param phi numeric vector or scalar of current dispersion/scale parameters
+#'   (one per species when applicable).
+#' @param pi numeric vector of archetype mixing proportions (length \eqn{g});
+#'   included for API consistency but not used directly in this update.
+#' @param tau numeric matrix of posterior species-to-archetype probabilities
+#'   with dimension \eqn{s \times g} (rows = species, columns = archetypes).
+#' @param family a \pkg{stats}-style family object (e.g., \code{gaussian()},
+#'   \code{binomial()}, \code{poisson()}) used for the GLM fits.
+#' @param psi2 numeric nonnegative scalar penalty tuning parameter applied to
+#'   species loadings (ridge penalty). Default \code{0} (no penalty).
+#' @param maxit integer maximum number of IRLS iterations passed to the
+#'   internal \code{\link{penalized_glm_fit}} call (default \code{1}).
+#'
+#' @return A named list with components:
+#' \describe{
+#'   \item{\code{beta0}}{numeric vector of updated species intercepts (length \eqn{s}).}
+#'   \item{\code{Lambda}}{numeric matrix of updated species loadings (dimension \eqn{s \times d}).}
+#'   \item{\code{phi}}{numeric vector of updated dispersion/scale parameters (length \eqn{s}) when applicable.}
+#' }
+#'
+#' @details
+#' For each species \code{j} the function constructs a stacked dataset of
+#' length \eqn{n g} by repeating the site responses and design for each
+#' archetype. The stacked design has an intercept column and the site latent
+#' variables \code{U} as covariates; the archetype contribution
+#' \eqn{X B_k}, is included as an observation-level offset for rows
+#' corresponding to archetype \code{k}. Observation weights are given by
+#' \eqn{\tau_{jk}}. A penalized GLM is fitted via \code{\link{penalized_glm_fit}}
+#' with penalty weights \code{c(0, rep(1, d))} so that the intercept is
+#' unpenalized while the loadings receive a ridge penalty scaled by
+#' \code{psi2}. When \code{family$family == "gaussian"} the species-specific
+#' dispersion \eqn{\phi_j} is re-estimated as the weighted mean squared error
+#' using the IRLS weights.
+#'
+#' The function returns the updated \code{beta0}, \code{Lambda} and \code{phi}
+#' which can be used in subsequent EM iterations.
+#'
+#' @examples
+#' set.seed(42)
+#' n <- 40; s <- 6; p <- 2; d <- 2; g <- 3
+#' X <- matrix(rnorm(n * p), n, p)
+#' U <- matrix(rnorm(n * d), n, d)
+#' B <- matrix(rnorm(g * p), g, p)
+#' beta0 <- rnorm(s)
+#' Lambda <- matrix(rnorm(s * d), s, d)
+#' pi <- rep(1/g, g)
+#' Y <- matrix(rnorm(n * s), n, s)
+#' tau <- matrix(runif(s * g), s, g); tau <- tau / rowSums(tau)
+#' res <- mstep_species_pars(Y, X, B, U, beta0, Lambda, phi = rep(1, s),
+#'                           pi, tau, family = gaussian(), psi2 = 0.1, maxit = 2)
+#' str(res)
+#'
+#' @seealso \code{\link{penalized_glm_fit}}, \code{\link{mstep_arch_pars}},
+#'   \code{\link{estep_post_probs}}
+#' @export
 mstep_species_pars <- function(Y, X, B, U, beta0, Lambda, phi, pi, tau,
                                family, psi2 = 0, maxit = 1) {
 
@@ -199,9 +489,79 @@ mstep_species_pars <- function(Y, X, B, U, beta0, Lambda, phi, pi, tau,
   list(beta0 = beta0_new, Lambda = Lambda_new, phi = phi_new)
 }
 
-#' M-step: site scores (internal)
+#' M-step: update site scores (latent site covariates) for CSAM
 #'
-#' @keywords internal
+#' Update site-level latent variables \code{U} (site scores) in the conditional
+#' M-step of the Correlated Species Archetype Model (CSAM). For each site the
+#' function stacks species-by-archetype observations and fits a penalized GLM
+#' to update the site's latent coordinates. Species loadings \code{Lambda}
+#' serve as covariates in the per-site regression, archetype contributions
+#' \code{X %*% B[k, ]} enter as offsets, and posterior species-to-archetype
+#' probabilities \eqn{\tau_{jk}} provide observation weights.
+#'
+#' @param Y **numeric matrix** of species responses with \eqn{n} rows (sites)
+#'   and \eqn{s} columns (species).
+#' @param X **numeric matrix** design matrix with \eqn{n} rows (sites) and
+#'   \eqn{p} columns (environmental covariates).
+#' @param B **numeric matrix** of archetype regression coefficients with
+#'   \eqn{g} rows and \eqn{p} columns (row \code{k} = coefficients for archetype \code{k}).
+#' @param beta0 **numeric** vector of species intercepts of length \eqn{s}.
+#' @param Lambda **numeric matrix** of species loadings with \eqn{s} rows and
+#'   \eqn{d} columns (row \code{j} = loadings for species \code{j}).
+#' @param U **numeric matrix** of current latent site covariates with
+#'   \eqn{n} rows and \eqn{d} columns (row \code{i} = site \code{i} scores).
+#' @param phi **numeric** dispersion/scale parameter (kept for API compatibility;
+#'   not used directly by this function).
+#' @param pi **numeric** vector of archetype mixing proportions (length \eqn{g});
+#'   included for API consistency but not used directly in this update.
+#' @param tau **numeric matrix** of posterior species-to-archetype probabilities
+#'   with dimension \eqn{s \times g} (rows = species, columns = archetypes).
+#' @param family a \pkg{stats}-style family object (for example
+#'   \code{gaussian()}, \code{binomial()}, \code{poisson()}). The function
+#'   uses \code{family$linkinv}, \code{family$dev.resids} and related methods
+#'   via the internal GLM solver.
+#' @param psi1 **numeric** nonnegative scalar penalty tuning parameter applied
+#'   to site scores (ridge penalty). Default \code{0} (no penalty).
+#' @param maxit **integer** maximum number of IRLS iterations passed to the
+#'   internal \code{\link{penalized_glm_fit}} call (default \code{1}).
+#'
+#' @return A numeric matrix of the same dimension as \code{U} (\eqn{n \times d})
+#'   containing the updated site scores (row \code{i} = updated scores for site \code{i}).
+#'
+#' @details
+#' For each site \code{i} the function constructs a stacked dataset of length
+#' \eqn{s g} by iterating over species \code{j} and archetypes \code{k}. The
+#' stacked design matrix uses the species loadings \eqn{\lambda_j} (row
+#' \code{j} of \code{Lambda}) as covariates; the archetype contribution
+#' \eqn{X[i, ] B_k}, and species intercept \eqn{\beta_{0j}} are included as
+#' an observation-level offset. Observation weights are given by
+#' \eqn{\tau_{jk}}. A penalized GLM is fitted via \code{\link{penalized_glm_fit}}
+#' with penalty weights \code{rep(1, d)} so that all dimensions of the site
+#' score receive a ridge penalty scaled by \code{psi1}. The fitted
+#' coefficients replace the corresponding row of \code{U}.
+#'
+#' This conditional update treats each site independently and is typically
+#' used inside an outer EM loop that alternates E- and M-steps for CSAM.
+#'
+#' @examples
+#' set.seed(123)
+#' n <- 30; s <- 5; p <- 2; d <- 2; g <- 3
+#' X <- matrix(rnorm(n * p), n, p)
+#' B <- matrix(rnorm(g * p), g, p)
+#' beta0 <- rnorm(s)
+#' Lambda <- matrix(rnorm(s * d), s, d)
+#' U <- matrix(rnorm(n * d), n, d)
+#' pi <- rep(1/g, g)
+#' Y <- matrix(rnorm(n * s), n, s)
+#' tau <- matrix(runif(s * g), s, g); tau <- tau / rowSums(tau)
+#' U_upd <- mstep_site_scores(Y, X, B, beta0, Lambda, U, phi = 1, pi, tau,
+#'                            family = gaussian(), psi1 = 0.1, maxit = 2)
+#' dim(U_upd)  # n x d
+#'
+#' @seealso \code{\link{penalized_glm_fit}}, \code{\link{mstep_arch_pars}},
+#'   \code{\link{mstep_species_pars}}, \code{\link{estep_post_probs}}
+#' @keywords csam site mstep latent penalized
+#' @export
 mstep_site_scores <- function(Y, X, B, beta0, Lambda, U, phi, pi, tau,
                               family, psi1 = 0, maxit = 1) {
 

@@ -365,7 +365,8 @@ plot.csam <- function(x,
 #' @exportS3Method stats::vcov csam
 #' @importFrom TMB sdreport MakeADFun
 vcov.csam <- function(object,
-                       method = c("naive", "louis", "tmb", "sandwich"),
+                      method = c("naive", "louis", "tmb", "sandwich"),
+                      map = list(logphi = factor(rep(NA, s)), theta_pi = factor(rep(NA, g))),
                        ...) {
 
   method <- match.arg(method)
@@ -440,17 +441,28 @@ vcov.csam <- function(object,
       lik_type = 1
     )
     # set up required parameter list for the AD function
-    start.pars.tmb = m[1:6]
-    start.pars.tmb$theta_pi = log(m$pi)
+    start.pars.tmb = object[1:6]
+    start.pars.tmb$theta_pi = log(object$pi)
     start.pars.tmb$pi = NULL
-    start.pars.tmb$logphi = log(m$phi)
+    start.pars.tmb$logphi = log(object$phi)
     start.pars.tmb$phi = NULL
-    obj <- TMB::MakeADFun(
-      data = data_list,
-      parameters = start.pars.tmb,
-      DLL = "csam", random = "U", map = list(logphi = factor(rep(NA, s)), theta_pi = factor(rep(NA, g))), # for now fixing these to cheat into non-singular matrix
-      silent = TRUE
-    )
+
+    # set up mapping if present
+    if (!is.null(map)) {
+      obj <- TMB::MakeADFun(
+        data = data_list,
+        parameters = start.pars.tmb,
+        DLL = "csam", random = "U", map = map, # for now fixing these to cheat into non-singular matrix
+        silent = TRUE
+      )
+    } else {
+      obj <- TMB::MakeADFun(
+        data = data_list,
+        parameters = start.pars.tmb,
+        DLL = "csam", random = "U",
+        silent = TRUE
+      )
+    }
     rep <- TMB::sdreport(obj, getJointPrecision = TRUE)
     covmat = solve(as.matrix(rep$jointPrecision))
 

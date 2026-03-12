@@ -104,14 +104,12 @@ csam <- function(Y, X, g = 3, d = 2, family = poisson(),
     if (family$family == "gaussian") m <- m
     family$linkfun(m)
   }
-  beta0 <- if (!is.null(init$beta0)) init$beta0 else apply(Y, 2, safe_mean)
-  # beta0 <- if (!is.null(init$beta0)) init$beta0 else
-  #   apply(Y, 2, function(col) family$linkfun(mean(col + 0.1)))
-  B      <- if (!is.null(init$B))     init$B     else matrix(rnorm(g * p, 0, 0.1), g, p)
-  pi     <- if (!is.null(init$pi))    init$pi    else rep(1 / g, g)
-  U      <- if (!is.null(init$U))     init$U     else matrix(rnorm(n * d, 0, 0.1), n, d)
-  Lambda <- if (!is.null(init$Lambda)) init$Lambda else matrix(rnorm(s * d, 0, 0.1), s, d)
-  phi    <- if (!is.null(init$phi))   init$phi   else rep(1, s)
+  beta0 <- if (!is.null(init$beta0)) { init$beta0 } else { apply(Y, 2, safe_mean) }
+  B <- if (!is.null(init$B)) { init$B } else { matrix(rnorm(g * p, 0, 0.1), g, p) }
+  pi <- if (!is.null(init$pi)) { init$pi } else { rep(1 / g, g) }
+  U <- if (!is.null(init$U)) { init$U } else { matrix(rnorm(n * d, 0, 0.1), n, d) }
+  Lambda <- if (!is.null(init$Lambda)) { init$Lambda } else { matrix(rnorm(s * d, 0, 0.1), s, d) }
+  phi <- if (!is.null(init$phi)) { init$phi } else { rep(1, s) }
 
   # some checks on warm starts
   if (g != nrow(B)) {
@@ -142,7 +140,19 @@ csam <- function(Y, X, g = 3, d = 2, family = poisson(),
     stop("mismatch between initial factor scores, U, and specified d")
   }
 
-  prev_pll <- -Inf
+  par.list = list(
+    beta0 = beta0,
+    B = B,
+    pi = pi,
+    U = U,
+    Lambda = Lambda,
+    phi = phi
+  )
+
+  prev_pll <- mzll(Y, X, par.list, g = g, d = d, family = family, psi1 = psi1, psi2 = psi2)
+  if (verbose) {
+    cat(sprintf("Iter %3d: log-lik = %.6f\n", 0, prev_pll))
+  }
 
   if (trace) {
     trace_store <- list(
@@ -161,47 +171,49 @@ csam <- function(Y, X, g = 3, d = 2, family = poisson(),
 
   for (iter in 1:max_iter) {
 
-    if (iter == 1) {
-      tau <- estep_post_probs(Y, X, beta0, B, U, Lambda, phi, pi, family,
+    if (iter < 1) {
+      tau <- estep_post_probs(Y, X, par.list = par.list, family,
                               trunc.interval = TRUE)
     } else {
-      tau <- estep_post_probs(Y, X, beta0, B, U, Lambda, phi, pi, family)
+      tau <- estep_post_probs(Y, X, par.list = par.list, family)
     }
+    # tau <- estep_post_probs(Y = Y, X = X, par.list = par.list, family = family)
 
-    B <- mstep_arch_pars(Y, X, beta0, B, U, Lambda, phi, pi, tau,
-                         family, maxit = maxit_step1)
+    par.list$B <- mstep_arch_pars(Y = Y, X = X, par.list = par.list, tau = tau,
+                         family = family, maxit = maxit_step1)
 
-    sp <- mstep_species_pars(Y, X, B, U, beta0, Lambda, phi, pi, tau,
-                             family, psi2 = psi2, maxit = maxit_step2)
-    beta0  <- sp$beta0
-    Lambda <- sp$Lambda
-    phi    <- sp$phi
+    sp <- mstep_species_pars(Y = Y, X = X, par.list = par.list, tau = tau,
+                             family = family, psi2 = psi2, maxit = maxit_step2)
+    par.list$beta0  <- sp$beta0
+    par.list$Lambda <- sp$Lambda
+    par.list$phi    <- sp$phi
 
-    U <- mstep_site_scores(Y, X, B, beta0, Lambda, U, phi, pi, tau,
-                           family, psi1 = psi1, maxit = maxit_step3)
+    par.list$U <- mstep_site_scores(Y = Y, X = X, par.list = par.list, tau = tau,
+                           family = family, psi1 = psi1, maxit = maxit_step3)
 
-    pi <- colMeans(tau)
-    pi <- pi / sum(pi)
+    par.list$pi <- colMeans(tau)
+    par.list$pi <- par.list$pi / sum(par.list$pi)
 
-    ll <- 0
-    for (j in 1:s) {
-      yj <- Y[, j]
-      lambda_j <- Lambda[j, , drop = FALSE]
-      offset_common <- as.vector(U %*% t(lambda_j))
-
-      comp <- numeric(g)
-      for (k in 1:g) {
-        eta <- beta0[j] + X %*% B[k, ] + offset_common
-        mu  <- family$linkinv(eta)
-        dev <- family$dev.resids(y = yj, mu = mu, wt = rep(1, n))
-        ll_comp <- -0.5 * family$aic(yj, rep(1, n), mu, rep(1, n), dev)
-        comp[k] <- sum(ll_comp) + log(pi[k])
-      }
-      m <- max(comp)
-      ll <- ll + m + log(sum(exp(comp - m)))
-    }
-
-    pll <- ll - 0.5 * psi1 * sum(U^2) - 0.5 * psi2 * sum(Lambda^2)
+    # ll <- 0
+    # for (j in 1:s) {
+    #   yj <- Y[, j]
+    #   lambda_j <- Lambda[j, , drop = FALSE]
+    #   offset_common <- as.vector(U %*% t(lambda_j))
+    #
+    #   comp <- numeric(g)
+    #   for (k in 1:g) {
+    #     eta <- beta0[j] + X %*% B[k, ] + offset_common
+    #     mu  <- family$linkinv(eta)
+    #     dev <- family$dev.resids(y = yj, mu = mu, wt = rep(1, n))
+    #     ll_comp <- -0.5 * family$aic(yj, rep(1, n), mu, rep(1, n), dev)
+    #     comp[k] <- sum(ll_comp) + log(pi[k])
+    #   }
+    #   m <- max(comp)
+    #   ll <- ll + m + log(sum(exp(comp - m)))
+    # }
+    #
+    # pll <- ll - 0.5 * psi1 * sum(U^2) - 0.5 * psi2 * sum(Lambda^2)
+    pll <-  mzll(Y, X, par.list, g = g, d = d, family = family, psi1 = psi1, psi2 = psi2)
 
     if (!is.finite(pll)) {
       warning("penalized log-likelihood became non-finite; stopping")
@@ -213,12 +225,12 @@ csam <- function(Y, X, g = 3, d = 2, family = poisson(),
     }
 
     if (trace) {
-      trace_store$beta0[[iter]]  <- beta0
-      trace_store$B[[iter]]      <- B
-      trace_store$pi[[iter]]     <- pi
-      trace_store$U[[iter]]      <- U
-      trace_store$Lambda[[iter]] <- Lambda
-      trace_store$phi[[iter]]    <- phi
+      trace_store$beta0[[iter]]  <- par.list$beta0
+      trace_store$B[[iter]]      <- par.list$B
+      trace_store$pi[[iter]]     <- par.list$pi
+      trace_store$U[[iter]]      <- par.list$U
+      trace_store$Lambda[[iter]] <- par.list$Lambda
+      trace_store$phi[[iter]]    <- par.list$phi
       trace_store$tau[[iter]]    <- tau
       trace_store$pll[iter]      <- pll
 
@@ -249,13 +261,14 @@ csam <- function(Y, X, g = 3, d = 2, family = poisson(),
   }
 
   out <- list(
-    beta0 = beta0,
-    B = B,
-    pi = pi,
-    U = U,
-    Lambda = Lambda,
-    phi = phi,
+    beta0 = par.list$beta0,
+    B = par.list$B,
+    pi = par.list$pi,
+    U = par.list$U,
+    Lambda = par.list$Lambda,
+    phi = par.list$phi,
     tau = tau,
+    par.list = par.list,
     penalized_loglik = pll,
     iterations = iter,
     family = family,
@@ -348,18 +361,26 @@ csam <- function(Y, X, g = 3, d = 2, family = poisson(),
 #'
 #' @export
 sam <- function(Y, X, g = 3, family = poisson(),
-                 max_iter = 100, tol = 1e-6,
-                 verbose = TRUE, init = NULL,
-                 maxit_step1 = 1, maxit_step2 = 1,
-                 trace = TRUE) {
+                max_iter = 100, tol = 1e-6,
+                verbose = TRUE, init = NULL,
+                maxit_step1 = 1, maxit_step2 = 1,
+                first_maxit_step1 = 50, first_maxit_step2 = 50,
+                trace = TRUE) {
 
   n <- nrow(Y); s <- ncol(Y); p <- ncol(X)
 
-  beta0 <- if (!is.null(init$beta0)) init$beta0 else
-    apply(Y, 2, function(col) family$linkfun(mean(col + 0.1)))
-  B      <- if (!is.null(init$B))     init$B     else matrix(rnorm(g * p, 0, 0.1), g, p)
-  pi     <- if (!is.null(init$pi))    init$pi    else rep(1 / g, g)
-  phi    <- if (!is.null(init$phi))   init$phi   else rep(1, s)
+  safe_mean <- function(x) {
+    m <- mean(x, na.rm = TRUE)
+    eps <- 1e-6
+    if (family$family == "binomial") m <- pmin(pmax(m, eps), 1 - eps)
+    if (family$family == "poisson") m <- pmax(m, eps)
+    if (family$family == "gaussian") m <- m
+    family$linkfun(m)
+  }
+  beta0 <- if (!is.null(init$beta0)) { init$beta0 } else { apply(Y, 2, safe_mean) }
+  B <- if (!is.null(init$B)) { init$B } else { matrix(rnorm(g * p, 0, 0.1), g, p) }
+  pi <- if (!is.null(init$pi)) { init$pi } else { rep(1 / g, g) }
+  phi <- if (!is.null(init$phi)) { init$phi } else { rep(1, s) }
 
   # some checks on warm starts
   if (g != nrow(B)) {
@@ -378,7 +399,18 @@ sam <- function(Y, X, g = 3, family = poisson(),
     stop("mismatch between initial mixing parameters, pi, and specified g")
   }
 
-  prev_pll <- -Inf
+  par.list = list(
+    beta0 = beta0,
+    B = B,
+    pi = pi,
+    phi = phi
+  )
+
+  prev_pll <- mzll(Y, X, par.list, g = g, d = 1, family = family)
+  if (verbose) {
+    cat(sprintf("Iter %3d: log-lik = %.6f\n", 0, prev_pll))
+  }
+
 
   if (trace) {
     trace_store <- list(
@@ -396,50 +428,63 @@ sam <- function(Y, X, g = 3, family = poisson(),
   for (iter in 1:max_iter) {
 
     if (iter == 1) {
-      tau <- estep0_post_probs(Y, X, beta0, B, phi, pi, family,
+      tau <- estep0_post_probs(Y, X, par.list = par.list, family,
                               trunc.interval = TRUE)
     } else {
-      tau <- estep0_post_probs(Y, X, beta0, B, phi, pi, family)
+      tau <- estep0_post_probs(Y, X, par.list = par.list, family)
+    }
+    # tau <- estep0_post_probs(Y = Y, X = X, par.list = par.list, family = family)
+
+    if (iter == 1) {
+      par.list$B <- mstep0_arch_pars(Y = Y, X = X, par.list = par.list, tau = tau,
+                                     family = family, maxit = first_maxit_step1)
+    } else {
+      par.list$B <- mstep0_arch_pars(Y = Y, X = X, par.list = par.list, tau = tau,
+                                     family = family, maxit = maxit_step1)
     }
 
-    B <- mstep0_arch_pars(Y, X, beta0, B, phi, pi, tau,
-                         family, maxit = maxit_step1)
-
-    sp <- mstep0_species_pars(Y, X, B, beta0, phi, pi, tau,
-                             family, maxit = maxit_step2)
-    beta0  <- sp$beta0
-    phi    <- sp$phi
-
-    pi <- colMeans(tau)
-    pi <- pi / sum(pi)
-
-    ll <- 0
-    for (j in 1:s) {
-      yj <- Y[, j]
-
-      comp <- numeric(g)
-      for (k in 1:g) {
-        eta <- beta0[j] + X %*% B[k, ]
-        mu  <- family$linkinv(eta)
-        dev <- family$dev.resids(y = yj, mu = mu, wt = rep(1, n))
-        ll_comp <- -0.5 * family$aic(yj, rep(1, n), mu, rep(1, n), dev)
-        comp[k] <- sum(ll_comp) + log(pi[k])
-      }
-      m <- max(comp)
-      ll <- ll + m + log(sum(exp(comp - m)))
+    if (iter == 1) {
+      sp <- mstep0_species_pars(Y = Y, X = X, par.list = par.list, tau = tau,
+                                family = family, maxit = first_maxit_step2)
+    } else {
+      sp <- mstep0_species_pars(Y = Y, X = X, par.list = par.list, tau = tau,
+                                family = family, maxit = maxit_step2)
     }
 
-    pll <- ll
+    par.list$beta0  <- sp$beta0
+    par.list$phi    <- sp$phi
+
+    par.list$pi <- colMeans(tau)
+    par.list$pi <- par.list$pi / sum(par.list$pi)
+
+    # ll <- 0
+    # for (j in 1:s) {
+    #   yj <- Y[, j]
+    #
+    #   comp <- numeric(g)
+    #   for (k in 1:g) {
+    #     eta <- beta0[j] + X %*% B[k, ]
+    #     mu  <- family$linkinv(eta)
+    #     dev <- family$dev.resids(y = yj, mu = mu, wt = rep(1, n))
+    #     ll_comp <- -0.5 * family$aic(yj, rep(1, n), mu, rep(1, n), dev)
+    #     comp[k] <- sum(ll_comp) + log(pi[k])
+    #   }
+    #   m <- max(comp)
+    #   ll <- ll + m + log(sum(exp(comp - m)))
+    # }
+    #
+    # pll <- ll
+    pll <- mzll(Y, X, par.list, g = g, d = 1, family = family)
 
     if (verbose) {
       cat(sprintf("Iter %3d: log-lik = %.6f\n", iter, pll))
     }
 
     if (trace) {
-      trace_store$beta0[[iter]]  <- beta0
-      trace_store$B[[iter]]      <- B
-      trace_store$pi[[iter]]     <- pi
-      trace_store$phi[[iter]]    <- phi
+      trace_store$beta0[[iter]]  <- par.list$beta0
+      trace_store$B[[iter]]      <- par.list$B
+      trace_store$pi[[iter]]     <- par.list$pi
+      trace_store$phi[[iter]]    <- par.list$phi
       trace_store$tau[[iter]]    <- tau
       trace_store$pll[iter]      <- pll
 
@@ -452,8 +497,10 @@ sam <- function(Y, X, g = 3, family = poisson(),
       }
     }
 
-    if (abs(pll - prev_pll) < tol) break
+    if (abs(pll - prev_pll) < tol) { break }
+
     prev_pll <- pll
+
   }
 
   if (trace) {
@@ -468,11 +515,12 @@ sam <- function(Y, X, g = 3, family = poisson(),
   }
 
   out <- list(
-    beta0 = beta0,
-    B = B,
-    pi = pi,
-    phi = phi,
+    beta0 = par.list$beta0,
+    B = par.list$B,
+    pi = par.list$pi,
+    phi = par.list$phi,
     tau = tau,
+    par.list = par.list,
     penalized_loglik = pll,
     iterations = iter,
     family = family,

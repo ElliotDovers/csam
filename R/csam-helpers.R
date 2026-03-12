@@ -91,9 +91,7 @@ penalized_glm_fit <- function(X, y, weights = NULL, offset = NULL,
   if (is.null(weights)) weights <- rep(1, n)
   if (is.null(offset)) offset <- rep(0, n)
   if (is.null(penalty_weights)) penalty_weights <- rep(0, p)
-
-  if (length(penalty_weights) != p) {stop("penalty_weights must have length p")}
-  P <- diag(penalty_weights, p, p)
+  if (length(penalty_weights) != p) stop("penalty_weights must have length p")
 
   linkinv  <- family$linkinv
   mu_eta   <- family$mu.eta
@@ -103,7 +101,7 @@ penalized_glm_fit <- function(X, y, weights = NULL, offset = NULL,
     beta <- rep(0, p)
   } else {
     if (length(start) == p) {
-      beta <- start
+      beta <- as.numeric(start)
     } else {
       stop("incorrect length of starting values")
     }
@@ -112,25 +110,89 @@ penalized_glm_fit <- function(X, y, weights = NULL, offset = NULL,
   eta <- as.vector(X %*% beta + offset)
   mu  <- linkinv(eta)
 
+  converged <- FALSE
+  iter_used <- 0
+
   for (iter in 1:maxit) {
+    iter_used <- iter
 
     mu_eta_val <- mu_eta(eta)
     var_mu <- variance(mu)
 
+    # protect against zero or NA mu_eta or variance
+    if (any(!is.finite(mu_eta_val)) || any(!is.finite(var_mu))) {
+      warning("non-finite mu_eta or variance encountered; stopping IRLS")
+      break
+    }
+
     W <- weights * (mu_eta_val^2 / var_mu)
+    # if all weights are zero, break
+    if (all(W == 0)) {
+      warning("all IRLS weights are zero; returning current coefficients")
+      break
+    }
+
     z <- (eta - offset) + (y - mu) / mu_eta_val
 
-    WX <- sqrt(W) * X
-    wz <- sqrt(W) * z
+    # Weighted normal equations: XtW X and XtW z
+    # compute X' (W * X) efficiently
+    sqrtW <- sqrt(W)
+    WX <- sqrtW * X
+    wz <- sqrtW * z
 
-    A <- rbind(WX, sqrt(lambda) * P)
-    b <- c(wz, rep(0, p))
+    XtWX <- crossprod(WX)            # p x p
+    XtWz <- crossprod(WX, wz)        # p
 
-    qrA <- qr(A)
-    beta_new <- qr.coef(qrA, b)
+    # Add penalty: diagonal matrix diag(lambda * penalty_weights)
+    if (!is.numeric(lambda) || length(lambda) != 1 || lambda < 0) {
+      stop("lambda must be a non-negative scalar")
+    }
+    penalty_diag <- lambda * as.numeric(penalty_weights)
+    # NOT DOING THIS: Add small jitter to improve numerical stability when penalty_diag is zero
+    #jitter_eps <- 1e-12
+    reg_mat <- XtWX
+    diag(reg_mat) <- diag(reg_mat) + penalty_diag# + jitter_eps
 
-    if (any(is.na(beta_new)) || any(!is.finite(beta_new))) {
-      warning("penalized_glm_fit: unstable QR solution; returning previous coefficients")
+    # Try Cholesky solve first for speed and stability when PD
+    beta_new <- rep(NA_real_, p)
+    chol_ok <- FALSE
+    chol_err <- NULL
+    tryCatch({
+      R <- chol(reg_mat)            # R is upper triangular, R' R = reg_mat
+      tmp.resp <- backsolve(R, XtWz, transpose = TRUE)  # solves R' tmp.resp = XtWz
+      beta_new <- backsolve(R, tmp.resp)                 # solves R beta = tmp.resp
+      chol_ok <- TRUE
+    }, error = function(e) {
+      chol_err <<- conditionMessage(e)
+      chol_ok <<- FALSE
+    })
+
+    if (!chol_ok) {
+      # fallback to QR on the regularized system
+      # build small augmented system: [WX; sqrt(penalty_diag) * I] and rhs [wz; 0]
+      # but avoid forming huge matrices by using qr on reg_mat directly
+      qr_reg <- qr(reg_mat)
+      if (qr_reg$rank < p) {
+        warning(sprintf("regularized normal matrix rank deficient (rank=%d < p=%d); using qr.coef with tolerance", qr_reg$rank, p))
+      }
+      beta_new <- qr.coef(qr_reg, XtWz)
+      # if qr.coef returns NA, try a damped ridge
+      if (any(is.na(beta_new))) {
+        damp <- max(1e-8, 1e-6 * sum(diag(reg_mat)))
+        diag(reg_mat) <- diag(reg_mat) + damp
+        qr_reg2 <- qr(reg_mat)
+        beta_new <- qr.coef(qr_reg2, XtWz)
+        if (any(is.na(beta_new))) {
+          warning("unable to obtain stable solution for penalized GLM; returning previous beta")
+          beta_new <- beta
+          break
+        }
+      }
+    }
+
+    # check for non-finite solution
+    if (any(!is.finite(beta_new))) {
+      warning("non-finite coefficients produced; stopping and returning previous coefficients")
       beta_new <- beta
       break
     }
@@ -138,8 +200,9 @@ penalized_glm_fit <- function(X, y, weights = NULL, offset = NULL,
     eta_new <- as.vector(X %*% beta_new + offset)
     mu_new  <- linkinv(eta_new)
 
-    if (max(abs(beta_new - beta)) < tol) {
+    if (max(abs(beta_new - beta), na.rm = TRUE) < tol) {
       beta <- beta_new; eta <- eta_new; mu <- mu_new
+      converged <- TRUE
       break
     }
 
@@ -148,7 +211,11 @@ penalized_glm_fit <- function(X, y, weights = NULL, offset = NULL,
     mu  <- mu_new
   }
 
-  list(coefficients = beta, eta = eta, mu = mu)
+  list(coefficients = as.numeric(beta),
+       eta = as.numeric(eta),
+       mu = as.numeric(mu),
+       converged = converged,
+       iter = iter_used)
 }
 
 #' E-step: posterior probabilities for Correlated Species Archetype Models (CSAM)
@@ -221,8 +288,10 @@ penalized_glm_fit <- function(X, y, weights = NULL, offset = NULL,
 #'
 #' @seealso \code{\link[stats]{family}}
 #' @export
-estep_post_probs <- function(Y, X, beta0, B, U, Lambda, phi, pi, family,
+estep_post_probs <- function(Y, X, par.list, family,
                              trunc.interval = FALSE) {
+
+  beta0 = par.list$beta0; B = par.list$B; pi = par.list$pi; U = par.list$U; Lambda = par.list$Lambda; phi = par.list$phi
 
   n <- nrow(Y); s <- ncol(Y); g <- nrow(B)
 
@@ -324,11 +393,30 @@ estep_post_probs <- function(Y, X, beta0, B, U, Lambda, phi, pi, family,
 #'
 #' @seealso \code{\link[stats]{glm.fit}}, \code{\link{estep_post_probs}}
 #' @export
-mstep_arch_pars <- function(Y, X, beta0, B, U, Lambda, phi, pi, tau,
+mstep_arch_pars <- function(Y, X, par.list, tau,
                             family, maxit = 1) {
+
+  beta0 = par.list$beta0; B = par.list$B; pi = par.list$pi; U = par.list$U; Lambda = par.list$Lambda; phi = par.list$phi
 
   n <- nrow(Y); s <- ncol(Y); g <- nrow(B); p <- ncol(X)
   B_new <- B
+
+  # note the following removes non-convergence as we are typically using only a single iteration
+  safe_glm_fit <- function(...,
+                           pattern = "algorithm did not converge") {
+    withCallingHandlers(
+      stats::glm.fit(...),
+      warning = function(w) {
+        msg <- conditionMessage(w)
+        if (grepl(pattern, msg, fixed = TRUE)) {
+          invokeRestart("muffleWarning")
+        } else {
+          # re-emit other warnings
+          warning(w)
+        }
+      }
+    )
+  }
 
   for (k in 1:g) {
 
@@ -344,17 +432,31 @@ mstep_arch_pars <- function(Y, X, beta0, B, U, Lambda, phi, pi, tau,
       weights_stack[idx] <- tau[j, k]
     }
 
-    # note suppressWarnings removes non-convergence as we are typically using only a single iteration
-    fit <- suppressWarnings(stats::glm.fit(
+    fit <- safe_glm_fit(
       x = X_stack,
       y = y_stack,
       weights = weights_stack,
       offset = offset_stack,
       family = family,
       control = list(maxit = maxit)
-    ))
+    )
 
-    B_new[k, ] <- fit$coefficients
+    if (is.null(fit$coefficients) || any(is.na(fit$coefficients))) {
+      warning(sprintf("glm.fit failed for archetype %d; leaving B[k,] unchanged", k))
+    } else {
+      B_new[k, ] <- fit$coefficients
+    }
+
+    # fit <- suppressWarnings(stats::glm.fit(
+    #   x = X_stack,
+    #   y = y_stack,
+    #   weights = weights_stack,
+    #   offset = offset_stack,
+    #   family = family,
+    #   control = list(maxit = maxit)
+    # ))
+
+    # B_new[k, ] <- fit$coefficients
   }
 
   B_new
@@ -437,9 +539,10 @@ mstep_arch_pars <- function(Y, X, beta0, B, U, Lambda, phi, pi, tau,
 #' @seealso \code{\link{penalized_glm_fit}}, \code{\link{mstep_arch_pars}},
 #'   \code{\link{estep_post_probs}}
 #' @export
-mstep_species_pars <- function(Y, X, B, U, beta0, Lambda, phi, pi, tau,
+mstep_species_pars <- function(Y, X, par.list, tau,
                                family, psi2 = 0, maxit = 1) {
 
+  beta0 = par.list$beta0; B = par.list$B; pi = par.list$pi; U = par.list$U; Lambda = par.list$Lambda; phi = par.list$phi
   n <- nrow(Y); s <- ncol(Y); g <- nrow(B); d <- ncol(U)
 
   beta0_new <- beta0
@@ -476,9 +579,13 @@ mstep_species_pars <- function(Y, X, B, U, beta0, Lambda, phi, pi, tau,
       start = c(beta0_new[j], Lambda_new[j, ])
     )
 
-    coef_j <- fit$coefficients
-    beta0_new[j] <- coef_j[1]
-    Lambda_new[j, ] <- coef_j[-1]
+    if (is.null(fit$coefficients) || any(is.na(fit$coefficients))) {
+      warning(sprintf("penalized_glm_fit failed for speciese %d; leaving beta0[j] and Lambda[j, ] unchanged", k))
+    } else {
+      coef_j <- fit$coefficients
+      beta0_new[j] <- coef_j[1]
+      Lambda_new[j, ] <- coef_j[-1]
+    }
 
     if (family$family == "gaussian") {
       mu <- fit$mu
@@ -562,9 +669,10 @@ mstep_species_pars <- function(Y, X, B, U, beta0, Lambda, phi, pi, tau,
 #'   \code{\link{mstep_species_pars}}, \code{\link{estep_post_probs}}
 #' @keywords csam site mstep latent penalized
 #' @export
-mstep_site_scores <- function(Y, X, B, beta0, Lambda, U, phi, pi, tau,
+mstep_site_scores <- function(Y, X, par.list, tau,
                               family, psi1 = 0, maxit = 1) {
 
+  beta0 = par.list$beta0; B = par.list$B; pi = par.list$pi; U = par.list$U; Lambda = par.list$Lambda; phi = par.list$phi
   n <- nrow(Y); s <- ncol(Y); g <- nrow(B); d <- ncol(Lambda)
   U_new <- U
 
@@ -599,8 +707,14 @@ mstep_site_scores <- function(Y, X, B, beta0, Lambda, U, phi, pi, tau,
       maxit = maxit,
       start = U_new[i, ]
     )
-    # print(paste(i, "th site updated"))
-    U_new[i, ] <- fit$coefficients
+
+    if (is.null(fit$coefficients) || any(is.na(fit$coefficients))) {
+      warning(sprintf("penalized_glm_fit failed for speciese %d; leaving beta0[j] and Lambda[j, ] unchanged", k))
+    } else {
+      # print(paste(i, "th site updated"))
+      U_new[i, ] <- fit$coefficients
+    }
+
   }
 
   U_new
@@ -609,9 +723,10 @@ mstep_site_scores <- function(Y, X, B, beta0, Lambda, U, phi, pi, tau,
 #' E-step posterior probabilities for vanilla SAM (internal)
 #'
 #' @keywords internal
-estep0_post_probs <- function(Y, X, beta0, B, phi, pi, family,
+estep0_post_probs <- function(Y, X, par.list, family,
                              trunc.interval = FALSE) {
 
+  beta0 = par.list$beta0; B = par.list$B; pi = par.list$pi; phi = par.list$phi
   n <- nrow(Y); s <- ncol(Y); g <- nrow(B)
 
   loglik_mat <- matrix(NA, s, g)
@@ -647,9 +762,10 @@ estep0_post_probs <- function(Y, X, beta0, B, phi, pi, family,
 #' M-step for vanilla SAM: archetype parameters (internal)
 #'
 #' @keywords internal
-mstep0_arch_pars <- function(Y, X, beta0, B, phi, pi, tau,
+mstep0_arch_pars <- function(Y, X, par.list, tau,
                             family, maxit = 1) {
 
+  beta0 = par.list$beta0; B = par.list$B; pi = par.list$pi; phi = par.list$phi
   n <- nrow(Y); s <- ncol(Y); g <- nrow(B); p <- ncol(X)
   B_new <- B
 
@@ -686,9 +802,10 @@ mstep0_arch_pars <- function(Y, X, beta0, B, phi, pi, tau,
 #' M-step for vanilla SAM: species parameters (internal)
 #'
 #' @keywords internal
-mstep0_species_pars <- function(Y, X, B, beta0, phi, pi, tau,
+mstep0_species_pars <- function(Y, X, par.list, tau,
                                family, maxit = 1) {
 
+  beta0 = par.list$beta0; B = par.list$B; pi = par.list$pi; phi = par.list$phi
   n <- nrow(Y); s <- ncol(Y); g <- nrow(B)
 
   beta0_new <- beta0
@@ -739,7 +856,17 @@ score_complete <- function(object) {
 
   Y <- object$Y; X <- object$X; family <- object$family
   beta0 <- object$beta0; B <- object$B; pi <- object$pi
-  U <- object$U; Lambda <- object$Lambda; phi <- object$phi
+  if (is.null(object$U)) {
+    U <- matrix(rep(0, nrow(Y)), ncol = 1)
+  } else {
+    U <- object$U
+  }
+  if(is.null(object$Lambda)) {
+    Lambda <- matrix(rep(0, ncol(Y)), ncol = 1)
+  } else {
+    Lambda <- object$Lambda
+  }
+  phi <- object$phi
   psi1 <- object$psi1; psi2 <- object$psi2
 
   n <- nrow(Y); s <- ncol(Y); p <- ncol(X)
@@ -964,30 +1091,31 @@ init.sam.pars <- function(Y, X, g = 3, family = poisson()) {
   start.pars
 }
 
-# init.fa.pars_gllvm <- function(Y, X, g = 3, family = poisson(), d = 2) {
-#
-#   n <- nrow(Y); s <- ncol(Y); p <- ncol(X)
-#
-#   # initialise usual SAM parameters
-#   start.pars = csam::init.sam.pars(Y, X, g = 3, family = family)
-#
-#   # fit an initial species-specific models to obtain warm starts as in Hui et al. 2013
-#   beta0.init = vector("numeric", s)
-#   res = matrix(rep(0, n * s), n, s)
-#   for (sp in 1:s) {
-#     tmp.offset = X %*% start.pars$B[attr(start.pars,"sp clust")[sp], ]
-#     tmp.m = glm.fit(x = rep(1, nrow(X)), y = Y[,sp], family = family, offset = tmp.offset)
-#     res[ , sp] = statmod::qresid(tmp.m)
-#   }
-#   # perform factor analysis on the residuals
-#   tmp.fa = gllvm::gllvm(y = res, X = matrix(rep(1, n), ncol = 1), family = gaussian(), num.lv = d)
-#
-#   # update the starting parameters for the slopes and intercepts
-#   start.pars$U = tmp.fa$lvs
-#   start.pars$Lambda = coef(tmp.fa)$Species.scores
-#
-#   start.pars[c("beta0", "B", "pi", "U", "Lambda", "phi")]
-# }
+init.fa.pars_gllvm <- function(Y, X, g = 3, family = poisson(), d = 2) {
+
+  n <- nrow(Y); s <- ncol(Y); p <- ncol(X)
+
+  # initialise usual SAM parameters
+  start.pars = csam::init.sam.pars(Y, X, g = 3, family = family)
+
+  # fit an initial species-specific models to obtain warm starts as in Hui et al. 2013
+  beta0.init = vector("numeric", s)
+  res = matrix(rep(0, n * s), n, s)
+  for (sp in 1:s) {
+    tmp.offset = X %*% start.pars$B[attr(start.pars,"sp clust")[sp], ]
+    tmp.m = glm.fit(x = rep(1, nrow(X)), y = Y[,sp], family = family, offset = tmp.offset)
+    res[ , sp] = statmod::qresid(tmp.m)
+  }
+  # perform factor analysis on the residuals
+  tmp.fa = gllvm::gllvm(y = res, X = data.frame(int = matrix(rep(1, n), ncol = 1)), family = gaussian(), num.lv = d, control.va = list(starting.val = "random"))
+  tmp.dat = data.frame(y = as.vector(res), x = matrix(rep(1, n * s), ncol = 1))
+
+  # update the starting parameters for the slopes and intercepts
+  start.pars$U = tmp.fa$lvs
+  start.pars$Lambda = coef(tmp.fa)$Species.scores
+
+  start.pars[c("beta0", "B", "pi", "U", "Lambda", "phi")]
+}
 
 #' Initialise starting values for correlated Species Archetype Models
 #'
@@ -1059,7 +1187,13 @@ init.fa.pars <- function(Y, X, g = 3, family = poisson(), d = 2) {
   for (sp in 1:s) {
     tmp.offset = X %*% start.pars$B[attr(start.pars,"sp clust")[sp], ]
     tmp.m = glmmTMB::glmmTMB(y ~ 1, data = data.frame(y = Y[,sp]), family = family, offset = tmp.offset)
-    res[ , sp] = glmmTMB:::residuals.glmmTMB(tmp.m, type = "dunn-smyth")
+    # if (family$family == "binomial") {
+    #   tmp.m = glmmTMB::glmmTMB(cbind(y, 1 - y) ~ 1, data = data.frame(y = Y[,sp]), family = family, offset = tmp.offset)
+    # } else {
+    #   tmp.m = glmmTMB::glmmTMB(y ~ 1, data = data.frame(y = Y[,sp]), family = family, offset = tmp.offset)
+    # }
+    # res[ , sp] = glmmTMB:::residuals.glmmTMB(tmp.m, type = "dunn-smyth")
+    res[ , sp] = residuals(DHARMa::simulateResiduals(tmp.m))
   }
 
   # put data in long format
@@ -1080,3 +1214,71 @@ init.fa.pars <- function(Y, X, g = 3, family = poisson(), d = 2) {
   # return start pars in canonical order
   start.pars[c("beta0", "B", "pi", "U", "Lambda", "phi")]
 }
+
+#' Calculate the log-likelihood marginalised over the true archetype labels (internal)
+#'
+#' @keywords internal
+mzll <- function(Y, X, par.list, g = 3, d = 2, family = poisson(),
+                 psi1 = 0, psi2 = 0) {
+
+  n <- nrow(Y); s <- ncol(Y); p <- ncol(X)
+
+  beta0 <- if (!is.null(par.list$beta0)) par.list$beta0 else rep(0, s)
+  B      <- if (!is.null(par.list$B))     par.list$B     else matrix(rep(0, g * p), g, p)
+  pi     <- if (!is.null(par.list$pi))    par.list$pi    else rep(1 / g, g)
+  U      <- if (!is.null(par.list$U))     par.list$U     else matrix(rep(0, n * d), n, d)
+  Lambda <- if (!is.null(par.list$Lambda)) par.list$Lambda else matrix(rep(0, s * d), s, d)
+  phi    <- if (!is.null(par.list$phi))   par.list$phi   else rep(1, s)
+
+  # some checks on warm starts
+  if (g != nrow(B)) {
+    stop("mismatch between archetype parameters, B, and specified g")
+  }
+  if (p != ncol(B)) {
+    stop("mismatch between predictor parameters, B, and columns in supplied X")
+  }
+  if (s != length(beta0)) {
+    stop("mismatch between response intercepts, beta0, and response columns in supplied Y")
+  }
+  if (s != length(phi)) {
+    stop("mismatch between response dispersion parameters, phi, and response columns in supplied Y")
+  }
+  if (g != length(pi)) {
+    stop("mismatch between mixing parameters, pi, and specified g")
+  }
+  if (s != nrow(Lambda)) {
+    stop("mismatch between factor loadings, Lambda, and response columns in supplied Y")
+  }
+  if (n != nrow(U)) {
+    stop("mismatch between factor scores, U, and response rows in supplied Y")
+  }
+  if (d != ncol(Lambda)) {
+    stop("mismatch between factor loadings, Lambda, and specified d")
+  }
+  if (d != ncol(U)) {
+    stop("mismatch between factor scores, U, and specified d")
+  }
+
+  ll <- 0
+  for (j in 1:s) {
+    yj <- Y[, j]
+    lambda_j <- Lambda[j, , drop = FALSE]
+    offset_common <- as.vector(U %*% t(lambda_j))
+
+    comp <- numeric(g)
+    for (k in 1:g) {
+      eta <- beta0[j] + X %*% B[k, ] + offset_common
+      mu  <- family$linkinv(eta)
+      dev <- family$dev.resids(y = yj, mu = mu, wt = rep(1, n))
+      ll_comp <- -0.5 * family$aic(yj, rep(1, n), mu, rep(1, n), dev)
+      comp[k] <- sum(ll_comp) + log(pi[k])
+    }
+    m <- max(comp)
+    ll <- ll + m + log(sum(exp(comp - m)))
+  }
+
+  pll <- ll - 0.5 * psi1 * sum(U^2) - 0.5 * psi2 * sum(Lambda^2)
+
+  pll
+}
+

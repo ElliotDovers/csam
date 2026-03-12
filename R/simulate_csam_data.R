@@ -1,4 +1,4 @@
-simulate_csam_data <- function(n, s, g, d, p, true.pars = list(), covariate.matrix = NULL, seed, plotting = TRUE) {
+simulate_csam_data <- function(n, s, g, d, p, true.pars = list(), covariate.matrix = NULL, family = poisson(), seed, plotting = TRUE) {
 
   set.seed(seed)
 
@@ -23,14 +23,54 @@ simulate_csam_data <- function(n, s, g, d, p, true.pars = list(), covariate.matr
   dat = data.frame(sp = rep(1:s, each = n))
   dat$arch = z0[dat$sp] # arch. indicator
   dat$site = rep(1:n, s) # add in a site indicator
-  dat$site = rep(1:n, s) # add in a site indicator
   dat$eta = NULL # species-specific mean
   dat$x = matrix(NA, n * s, p)
+  dat$x = x[rep(seq_len(nrow(x)), s), ]
   for (j in 1:s) {
-    dat$x = x[rep(seq_len(nrow(x)), s), ]
     dat$eta[dat$sp == j] = beta0[j] + eta_g[ , z0[j]] + (U %*% Lambda[j, ])
   }
-  dat$y = rpois(nrow(dat), exp(dat$eta))
+  # obtain conditional mean based on family
+  mu <- family$linkinv(dat$eta)
+
+  # generate the response data based on the family
+  if (family$family == "poisson") {
+
+    dat$y <- rpois(nrow(dat), lambda = mu)
+
+  } else if (family$family == "binomial") {
+
+    dat$y <- rbinom(nrow(dat), size = 1, prob = mu)
+
+  } else if (family$family == "gaussian") {
+
+    dat$y <- rnorm(nrow(dat), mean = mu, sd = sqrt(dat$phi[dat$sp]))
+
+  } else if (family$family == "Gamma") {
+
+    shape <- 1 / dat$phi[dat$sp]
+    scale <- mu / shape
+    dat$y <- rgamma(nrow(dat), shape = shape, scale = scale)
+
+  } else if (family$family == "inverse.gaussian") {
+
+    if (!requireNamespace("statmod", quietly = TRUE)) {
+      stop("statmod package required for inverse.gaussian simulation")
+    }
+    dat$y <- statmod::rinvgauss(nrow(dat), mean = mu,
+                                dispersion = dat$phi[dat$sp])
+
+  } else if (family$family == "nbinom2") {
+
+    # NB2: Var = mu + phi * mu^2
+    # MASS::rnegbin uses theta = 1/phi
+    theta <- 1 / dat$phi[dat$sp]
+    dat$y <- MASS::rnegbin(nrow(dat), mu = mu, theta = theta)
+
+  } else {
+
+    stop(sprintf("Simulation for family '%s' not implemented",
+                 family$family))
+  }
 
   # store the true parameters
   true.pars$beta0 = beta0
@@ -57,7 +97,7 @@ simulate_csam_data <- function(n, s, g, d, p, true.pars = list(), covariate.matr
       par(mar = c(5.1, 4.1, 4.1, 2.1))
     } else {
       with(dat, plot(x, eta, col = arch, pch = 1, xlab = "Env. Covariate", ylab = expression(eta), main = ""))
-      legend(x = -2.25, y = max(dat$eta), legend = paste0("Archetype", 1:g), pch = 15, col = dat$arch, bty = "n", horiz = T, xpd = T)
+      legend(x = -2.25, y = max(dat$eta), legend = paste0("Archetype", 1:g), pch = 15, col = 1:g, bty = "n", horiz = T, xpd = T)
     }
   }
 

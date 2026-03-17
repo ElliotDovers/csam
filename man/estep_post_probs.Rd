@@ -4,18 +4,7 @@
 \alias{estep_post_probs}
 \title{E-step: posterior probabilities for Correlated Species Archetype Models (CSAM)}
 \usage{
-estep_post_probs(
-  Y,
-  X,
-  beta0,
-  B,
-  U,
-  Lambda,
-  phi,
-  pi,
-  family,
-  trunc.interval = FALSE
-)
+estep_post_probs(Y, X, par.list, family, trunc.interval = FALSE)
 }
 \arguments{
 \item{Y}{numeric matrix of species responses with \eqn{n} rows (sites) and
@@ -23,6 +12,14 @@ estep_post_probs(
 
 \item{X}{numeric design matrix with \eqn{n} rows (sites) and \eqn{p}
 columns (environmental covariates).}
+
+\item{family}{a \pkg{stats}-style family object (e.g., \code{gaussian()},
+\code{binomial()}, \code{poisson()}). The function uses
+\code{family$linkinv}, \code{family$dev.resids} and \code{family$aic}.}
+
+\item{trunc.interval}{logical; if \code{TRUE} apply a deterministic
+truncation/rescaling transform to posterior probabilities (default
+\code{FALSE}).}
 
 \item{beta0}{numeric vector of length \eqn{s} of species-specific intercepts.}
 
@@ -40,14 +37,6 @@ not used directly by this function).}
 
 \item{pi}{numeric vector of length \eqn{g} of prior archetype mixing
 proportions (positive, need not be normalized).}
-
-\item{family}{a \pkg{stats}-style family object (e.g., \code{gaussian()},
-\code{binomial()}, \code{poisson()}). The function uses
-\code{family$linkinv}, \code{family$dev.resids} and \code{family$aic}.}
-
-\item{trunc.interval}{logical; if \code{TRUE} apply a deterministic
-truncation/rescaling transform to posterior probabilities (default
-\code{FALSE}).}
 }
 \value{
 A numeric matrix of dimension \eqn{s \times g} (species by

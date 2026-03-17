@@ -366,10 +366,12 @@ plot.csam <- function(x,
 #' @importFrom TMB sdreport MakeADFun
 vcov.csam <- function(object,
                       method = c("naive", "louis", "tmb", "sandwich"),
-                      map = list(logphi = factor(rep(NA, s)), theta_pi = factor(rep(NA, g))),
                        ...) {
 
   method <- match.arg(method)
+
+  s <- ncol(object$Y)
+  g <- nrow(object$B)
 
   if (method == "naive") {
 
@@ -438,21 +440,21 @@ vcov.csam <- function(object,
                       poisson = 0,
                       binomial = 1,
                       gaussian = 2),  # 0=Poisson, 1=Binomial, 2=Gaussian,...
-      lik_type = 1
+      lik_type = 1 # get's the likelihood that marginalises U
     )
     # set up required parameter list for the AD function
     start.pars.tmb = object[1:6]
-    start.pars.tmb$theta_pi = log(object$pi)
+    start.pars.tmb$logit_pi = stats::binomial()$linkfun(object$pi[-g])
     start.pars.tmb$pi = NULL
-    start.pars.tmb$logphi = log(object$phi)
+    start.pars.tmb$log_phi = log(object$phi)
     start.pars.tmb$phi = NULL
 
     # set up mapping if present
-    if (!is.null(map)) {
+    if (object$family$family %in% c("binomial", "poisson")) {
       obj <- TMB::MakeADFun(
         data = data_list,
         parameters = start.pars.tmb,
-        DLL = "csam", random = "U", map = map, # for now fixing these to cheat into non-singular matrix
+        DLL = "csam", random = "U", map = list(log_phi = factor(rep(NA, s))), # for now fixing these to cheat into non-singular matrix
         silent = TRUE
       )
     } else {

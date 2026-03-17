@@ -4,7 +4,7 @@
 \alias{estep0_post_probs}
 \title{E-step posterior probabilities for vanilla SAM (internal)}
 \usage{
-estep0_post_probs(Y, X, beta0, B, phi, pi, family, trunc.interval = FALSE)
+estep0_post_probs(Y, X, par.list, family, trunc.interval = FALSE)
 }
 \description{
 E-step posterior probabilities for vanilla SAM (internal)

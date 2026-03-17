@@ -4,7 +4,7 @@
 \alias{mstep0_arch_pars}
 \title{M-step for vanilla SAM: archetype parameters (internal)}
 \usage{
-mstep0_arch_pars(Y, X, beta0, B, phi, pi, tau, family, maxit = 1)
+mstep0_arch_pars(Y, X, par.list, tau, family, maxit = 1)
 }
 \description{
 M-step for vanilla SAM: archetype parameters (internal)

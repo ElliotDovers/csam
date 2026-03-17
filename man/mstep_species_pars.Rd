@@ -4,20 +4,7 @@
 \alias{mstep_species_pars}
 \title{M-step: update species-level parameters for CSAM (species intercepts, loadings, dispersion)}
 \usage{
-mstep_species_pars(
-  Y,
-  X,
-  B,
-  U,
-  beta0,
-  Lambda,
-  phi,
-  pi,
-  tau,
-  family,
-  psi2 = 0,
-  maxit = 1
-)
+mstep_species_pars(Y, X, par.list, tau, family, psi2 = 0, maxit = 1)
 }
 \arguments{
 \item{Y}{numeric matrix of species responses with \eqn{n} rows (sites) and
@@ -25,6 +12,18 @@ mstep_species_pars(
 
 \item{X}{numeric design matrix with \eqn{n} rows (sites) and \eqn{p}
 columns (environmental covariates). Used to compute archetype offsets.}
+
+\item{tau}{numeric matrix of posterior species-to-archetype probabilities
+with dimension \eqn{s \times g} (rows = species, columns = archetypes).}
+
+\item{family}{a \pkg{stats}-style family object (e.g., \code{gaussian()},
+\code{binomial()}, \code{poisson()}) used for the GLM fits.}
+
+\item{psi2}{numeric nonnegative scalar penalty tuning parameter applied to
+species loadings (ridge penalty). Default \code{0} (no penalty).}
+
+\item{maxit}{integer maximum number of IRLS iterations passed to the
+internal \code{\link{penalized_glm_fit}} call (default \code{1}).}
 
 \item{B}{numeric matrix of archetype regression coefficients with \eqn{g}
 rows and \eqn{p} columns (row \code{k} = coefficients for archetype \code{k}).}
@@ -42,18 +41,6 @@ and \eqn{d} columns (row \code{j} = loadings for species \code{j}).}
 
 \item{pi}{numeric vector of archetype mixing proportions (length \eqn{g});
 included for API consistency but not used directly in this update.}
-
-\item{tau}{numeric matrix of posterior species-to-archetype probabilities
-with dimension \eqn{s \times g} (rows = species, columns = archetypes).}
-
-\item{family}{a \pkg{stats}-style family object (e.g., \code{gaussian()},
-\code{binomial()}, \code{poisson()}) used for the GLM fits.}
-
-\item{psi2}{numeric nonnegative scalar penalty tuning parameter applied to
-species loadings (ridge penalty). Default \code{0} (no penalty).}
-
-\item{maxit}{integer maximum number of IRLS iterations passed to the
-internal \code{\link{penalized_glm_fit}} call (default \code{1}).}
 }
 \value{
 A named list with components:

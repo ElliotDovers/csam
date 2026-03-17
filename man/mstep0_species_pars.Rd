@@ -4,7 +4,7 @@
 \alias{mstep0_species_pars}
 \title{M-step for vanilla SAM: species parameters (internal)}
 \usage{
-mstep0_species_pars(Y, X, B, beta0, phi, pi, tau, family, maxit = 1)
+mstep0_species_pars(Y, X, par.list, tau, family, maxit = 1)
 }
 \description{
 M-step for vanilla SAM: species parameters (internal)

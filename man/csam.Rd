@@ -15,10 +15,10 @@ csam(
   max_iter = 100,
   tol = 1e-06,
   verbose = TRUE,
-  init = NULL,
-  maxit_step1 = 1,
-  maxit_step2 = 1,
-  maxit_step3 = 1,
+  start = NULL,
+  maxit_step1 = 5,
+  maxit_step2 = 5,
+  maxit_step3 = 5,
   trace = TRUE
 )
 }
@@ -48,7 +48,7 @@ matrix \eqn{\boldsymbol{\Lambda}}.}
 \item{verbose}{Logical; if \code{TRUE}, prints the penalized log-likelihood at
 each iteration.}
 
-\item{init}{Optional list of initial values with elements
+\item{start}{Optional list of initial values with elements
 \code{beta0}, \code{B}, \code{pi}, \code{U}, \code{Lambda}, \code{phi}. Any missing elements are
 initialized internally.}
 

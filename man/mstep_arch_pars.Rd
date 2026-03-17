@@ -4,7 +4,7 @@
 \alias{mstep_arch_pars}
 \title{M-step: update archetype (archetype-level) regression coefficients for CSAM}
 \usage{
-mstep_arch_pars(Y, X, beta0, B, U, Lambda, phi, pi, tau, family, maxit = 1)
+mstep_arch_pars(Y, X, par.list, tau, family, maxit = 1)
 }
 \arguments{
 \item{Y}{numeric matrix of species responses with \eqn{n} rows (sites) and
@@ -12,6 +12,16 @@ mstep_arch_pars(Y, X, beta0, B, U, Lambda, phi, pi, tau, family, maxit = 1)
 
 \item{X}{numeric design matrix with \eqn{n} rows (sites) and \eqn{p}
 columns (environmental covariates).}
+
+\item{tau}{numeric matrix of posterior species-to-archetype probabilities
+with dimension \eqn{s \times g} (rows = species, columns = archetypes).}
+
+\item{family}{a \pkg{stats}-style family object (e.g., \code{gaussian()},
+\code{binomial()}, \code{poisson()}) used for the GLM fits.}
+
+\item{maxit}{integer maximum number of iterations passed to the internal
+\code{\link[stats]{glm.fit}} call (default \code{1}). A small number of
+iterations is typical because this is a conditional update inside EM.}
 
 \item{beta0}{numeric vector of length \eqn{s} of species-specific intercepts.}
 
@@ -29,16 +39,6 @@ not used directly by this function).}
 
 \item{pi}{numeric vector of length \eqn{g} of prior archetype mixing
 proportions (not used directly by this update but part of the model state).}
-
-\item{tau}{numeric matrix of posterior species-to-archetype probabilities
-with dimension \eqn{s \times g} (rows = species, columns = archetypes).}
-
-\item{family}{a \pkg{stats}-style family object (e.g., \code{gaussian()},
-\code{binomial()}, \code{poisson()}) used for the GLM fits.}
-
-\item{maxit}{integer maximum number of iterations passed to the internal
-\code{\link[stats]{glm.fit}} call (default \code{1}). A small number of
-iterations is typical because this is a conditional update inside EM.}
 }
 \value{
 A numeric matrix with the same dimensions as \code{B} containing

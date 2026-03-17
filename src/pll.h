@@ -1,12 +1,5 @@
 // pll.h
 {
-  // Softmax
-  vector<Type> pi(g);
-  {
-    Type m = theta_pi.maxCoeff();
-    vector<Type> exp_theta = (theta_pi.array() - m).exp();
-    pi = exp_theta / exp_theta.sum();
-  }
 
   // XB
   matrix<Type> XB(n, g);
@@ -35,7 +28,7 @@
         Type mu  = linkinv<Type>(eta, family);
         ll_k += loglik_y<Type>(Y(i,j), mu, family, phi(j));
       }
-      loglik_k(k) = log(pi(k)) + ll_k;
+      loglik_k(k) = logpi(k) + ll_k;
     }
     nll -= log_sum_exp<Type>(loglik_k);
   }

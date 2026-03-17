@@ -46,7 +46,7 @@
 #' @param tol Numeric; convergence tolerance on the penalized log-likelihood.
 #' @param verbose Logical; if `TRUE`, prints the penalized log-likelihood at
 #'   each iteration.
-#' @param init Optional list of initial values with elements
+#' @param start Optional list of initial values with elements
 #'   `beta0`, `B`, `pi`, `U`, `Lambda`, `phi`. Any missing elements are
 #'   initialized internally.
 #' @param maxit_step1 Integer; maximum P-IRLS iterations in the archetype
@@ -90,11 +90,18 @@
 #' @export
 csam <- function(Y, X, g = 3, d = 2, family = poisson(),
                  psi1 = 1, psi2 = 1, max_iter = 100, tol = 1e-6,
-                 verbose = TRUE, init = NULL,
-                 maxit_step1 = 1, maxit_step2 = 1, maxit_step3 = 1,
+                 verbose = TRUE, start = NULL,
+                 maxit_step1 = 5, maxit_step2 = 5, maxit_step3 = 5,
                  trace = TRUE) {
 
   n <- nrow(Y); s <- ncol(Y); p <- ncol(X)
+
+  # check if the supplied starting parameters are a fitted csam object and correct as needed
+  if (!is.null(start)) {
+    if (class(start) == "csam") {
+      start = start$par.list
+    }
+  }
 
   safe_mean <- function(x) {
     m <- mean(x, na.rm = TRUE)
@@ -104,12 +111,12 @@ csam <- function(Y, X, g = 3, d = 2, family = poisson(),
     if (family$family == "gaussian") m <- m
     family$linkfun(m)
   }
-  beta0 <- if (!is.null(init$beta0)) { init$beta0 } else { apply(Y, 2, safe_mean) }
-  B <- if (!is.null(init$B)) { init$B } else { matrix(rnorm(g * p, 0, 0.1), g, p) }
-  pi <- if (!is.null(init$pi)) { init$pi } else { rep(1 / g, g) }
-  U <- if (!is.null(init$U)) { init$U } else { matrix(rnorm(n * d, 0, 0.1), n, d) }
-  Lambda <- if (!is.null(init$Lambda)) { init$Lambda } else { matrix(rnorm(s * d, 0, 0.1), s, d) }
-  phi <- if (!is.null(init$phi)) { init$phi } else { rep(1, s) }
+  beta0 <- if (!is.null(start$beta0)) { start$beta0 } else { apply(Y, 2, safe_mean) }
+  B <- if (!is.null(start$B)) { start$B } else { matrix(rnorm(g * p, 0, 0.1), g, p) }
+  pi <- if (!is.null(start$pi)) { start$pi } else { rep(1 / g, g) }
+  U <- if (!is.null(start$U)) { start$U } else { matrix(rnorm(n * d, 0, 0.1), n, d) }
+  Lambda <- if (!is.null(start$Lambda)) { start$Lambda } else { matrix(rnorm(s * d, 0, 0.1), s, d) }
+  phi <- if (!is.null(start$phi)) { start$phi } else { rep(1, s) }
 
   # some checks on warm starts
   if (g != nrow(B)) {
@@ -140,7 +147,7 @@ csam <- function(Y, X, g = 3, d = 2, family = poisson(),
     stop("mismatch between initial factor scores, U, and specified d")
   }
 
-  par.list = list(
+  prev_par.list <- par.list <- list(
     beta0 = beta0,
     B = B,
     pi = pi,
@@ -149,7 +156,9 @@ csam <- function(Y, X, g = 3, d = 2, family = poisson(),
     phi = phi
   )
 
-  prev_pll <- mzll(Y, X, par.list, g = g, d = d, family = family, psi1 = psi1, psi2 = psi2)
+  prev_pll <- mzll(Y, X, par.list,
+                   # list(beta0 = beta0, B = B, pi = pi, U = U, Lambda = Lambda, phi = phi),
+                   g = g, d = d, family = family, psi1 = psi1, psi2 = psi2)
   if (verbose) {
     cat(sprintf("Iter %3d: log-lik = %.6f\n", 0, prev_pll))
   }
@@ -194,31 +203,21 @@ csam <- function(Y, X, g = 3, d = 2, family = poisson(),
     par.list$pi <- colMeans(tau)
     par.list$pi <- par.list$pi / sum(par.list$pi)
 
-    # ll <- 0
-    # for (j in 1:s) {
-    #   yj <- Y[, j]
-    #   lambda_j <- Lambda[j, , drop = FALSE]
-    #   offset_common <- as.vector(U %*% t(lambda_j))
-    #
-    #   comp <- numeric(g)
-    #   for (k in 1:g) {
-    #     eta <- beta0[j] + X %*% B[k, ] + offset_common
-    #     mu  <- family$linkinv(eta)
-    #     dev <- family$dev.resids(y = yj, mu = mu, wt = rep(1, n))
-    #     ll_comp <- -0.5 * family$aic(yj, rep(1, n), mu, rep(1, n), dev)
-    #     comp[k] <- sum(ll_comp) + log(pi[k])
-    #   }
-    #   m <- max(comp)
-    #   ll <- ll + m + log(sum(exp(comp - m)))
-    # }
-    #
-    # pll <- ll - 0.5 * psi1 * sum(U^2) - 0.5 * psi2 * sum(Lambda^2)
-    pll <-  mzll(Y, X, par.list, g = g, d = d, family = family, psi1 = psi1, psi2 = psi2)
+    pll <-  mzll(Y, X, par.list,
+                 # list(beta0 = beta0, B = B, pi = pi, U = U, Lambda = Lambda, phi = phi),
+                 g = g, d = d, family = family, psi1 = psi1, psi2 = psi2)
 
     if (!is.finite(pll)) {
       warning("penalized log-likelihood became non-finite; stopping")
+      conv = NA
       break
     }
+
+    # if (pll - prev_pll < -1e-12) {
+    #   warning("penalized log-likelihood no longer monotonic increasing; stopping")
+    #   conv = NA
+    #   break
+    # }
 
     if (verbose) {
       cat(sprintf("Iter %3d: penalized log-lik = %.6f\n", iter, pll))
@@ -233,18 +232,19 @@ csam <- function(Y, X, g = 3, d = 2, family = poisson(),
       trace_store$phi[[iter]]    <- par.list$phi
       trace_store$tau[[iter]]    <- tau
       trace_store$pll[iter]      <- pll
-
-      if (iter > 1) {
-        diff <- pll - prev_pll
-        trace_store$pll_diff[iter] <- diff
-        trace_store$is_monotone[iter] <- (diff >= -1e-12)
-      } else {
-        trace_store$is_monotone[iter] <- TRUE
-      }
+      diff <- pll - prev_pll
+      trace_store$pll_diff[iter] <- diff
+      trace_store$is_monotone[iter] <- (diff >= -1e-12)
     }
 
-    if (abs(pll - prev_pll) < tol) break
+    if (abs(pll - prev_pll) < tol) {
+      conv = 0
+      break
+    }
+
     prev_pll <- pll
+    prev_par.list <- par.list
+    conv = 1
   }
 
   if (trace) {
@@ -277,7 +277,8 @@ csam <- function(Y, X, g = 3, d = 2, family = poisson(),
     psi1 = psi1,
     psi2 = psi2,
     g = g,
-    d = d
+    d = d,
+    convergence = conv
   )
 
   if (trace) out$trace <- trace_store
@@ -322,7 +323,7 @@ csam <- function(Y, X, g = 3, d = 2, family = poisson(),
 #' @param tol Numeric; convergence tolerance on the penalized log-likelihood.
 #' @param verbose Logical; if `TRUE`, prints the penalized log-likelihood at
 #'   each iteration.
-#' @param init Optional list of initial values with elements
+#' @param start Optional list of initial values with elements
 #'   `beta0`, `B`, `pi`, `phi`. Any missing elements are
 #'   initialized internally.
 #' @param maxit_step1 Integer; maximum P-IRLS iterations in the archetype
@@ -362,12 +363,19 @@ csam <- function(Y, X, g = 3, d = 2, family = poisson(),
 #' @export
 sam <- function(Y, X, g = 3, family = poisson(),
                 max_iter = 100, tol = 1e-6,
-                verbose = TRUE, init = NULL,
-                maxit_step1 = 1, maxit_step2 = 1,
+                verbose = TRUE, start = NULL,
+                maxit_step1 = 5, maxit_step2 = 5,
                 first_maxit_step1 = 50, first_maxit_step2 = 50,
                 trace = TRUE) {
 
   n <- nrow(Y); s <- ncol(Y); p <- ncol(X)
+
+  # check if the supplied starting parameters are a fitted csam object and correct as needed
+  if (!is.null(start)) {
+    if (class(start) == "csam") {
+      start = start$par.list
+    }
+  }
 
   safe_mean <- function(x) {
     m <- mean(x, na.rm = TRUE)
@@ -377,10 +385,10 @@ sam <- function(Y, X, g = 3, family = poisson(),
     if (family$family == "gaussian") m <- m
     family$linkfun(m)
   }
-  beta0 <- if (!is.null(init$beta0)) { init$beta0 } else { apply(Y, 2, safe_mean) }
-  B <- if (!is.null(init$B)) { init$B } else { matrix(rnorm(g * p, 0, 0.1), g, p) }
-  pi <- if (!is.null(init$pi)) { init$pi } else { rep(1 / g, g) }
-  phi <- if (!is.null(init$phi)) { init$phi } else { rep(1, s) }
+  beta0 <- if (!is.null(start$beta0)) { start$beta0 } else { apply(Y, 2, safe_mean) }
+  B <- if (!is.null(start$B)) { start$B } else { matrix(rnorm(g * p, 0, 0.1), g, p) }
+  pi <- if (!is.null(start$pi)) { start$pi } else { rep(1 / g, g) }
+  phi <- if (!is.null(start$phi)) { start$phi } else { rep(1, s) }
 
   # some checks on warm starts
   if (g != nrow(B)) {
@@ -530,6 +538,235 @@ sam <- function(Y, X, g = 3, family = poisson(),
   )
 
   if (trace) out$trace <- trace_store
+
+  class(out) <- "csam"
+  out
+}
+
+#' Fit a Correlated Species Archetype Model (CSAM)
+#'
+#' @description
+#' Fits the correlated species archetype model
+#' \deqn{
+#'   h(\mu_{ijk}) = \beta_{0j} + \mathbf{x}_i^\top \boldsymbol{\beta}_k
+#'                  + \mathbf{u}_i^\top \boldsymbol{\lambda}_j
+#' }
+#' for species \eqn{j = 1,\ldots,s}, sites \eqn{i = 1,\ldots,n}, and archetypes
+#' \eqn{k = 1,\ldots,g}, where \eqn{h} is the GLM link function. The data are
+#' modeled as a finite mixture of regression models with component densities
+#' from a common exponential family.
+#'
+#' Estimation proceeds via a gradient-based optiimiser with:
+#'
+#' The penalized log-likelihood is
+#' \deqn{
+#'   \ell_{\text{pen}}(\theta; Y, X)
+#'   = \ell(\theta; Y, X)
+#'     - \frac{\psi_1}{2} \|\mathbf{U}\|_F^2
+#'     - \frac{\psi_2}{2} \|\boldsymbol{\Lambda}\|_F^2,
+#' }
+#' where \eqn{\mathbf{U}} are site scores and \eqn{\boldsymbol{\Lambda}} are
+#' species loadings, and \eqn{\|\cdot\|_F} is the Frobenius norm. Alternatively,
+#' the \eqn{\boldsymbol{U}} may be considered as standard normal variables and the
+#' model fitted via a marginalised log-likelihood approximated by Laplace (as in TMB)
+#'
+#' @param Y A numeric matrix of responses of dimension \eqn{n \times s},
+#'   with rows corresponding to sites and columns to species.
+#' @param X A numeric matrix of predictors of dimension \eqn{n \times p}.
+#' @param g Integer; number of archetypes (mixture components).
+#' @param d Integer; dimension of the common factor-analytic term.
+#' @param family A GLM family object (e.g. [stats::poisson()], [stats::binomial()],
+#'   [stats::gaussian()]) specifying the exponential family and link.
+#' @param psi1 Non-negative numeric; ridge penalty parameter on the site scores
+#'   matrix \eqn{\mathbf{U}}.
+#' @param psi2 Non-negative numeric; ridge penalty parameter on the loadings
+#'   matrix \eqn{\boldsymbol{\Lambda}}.
+#' @param U.random Logical; indicating whether to treat the site effects, \eqn{\boldsymbol{U}} as random or fixed effects.
+#' @param se Logical; if `TRUE`, approximates standard errors using [TMB::sdreport()]
+#' @param nlminb.control list; of control parameters for [stats::nlminb()]
+#' @param start Optional list of initial values with elements
+#'   `beta0`, `B`, `pi`, `U`, `Lambda`, `phi`. Any missing elements are
+#'   initialized internally. Alternatively, a fitted \code{csam} model object
+#' @param vanilla.sam Logical; if `TRUE`, the a standard SAM will be fitted that excludes residual correlation (i.e. \eqn{\boldsymbol{U}\boldsymbol{\Lambda}^{\top}})
+#'
+#' @return An object of class `"csam"` with components:
+#' \describe{
+#'   \item{beta0}{Length-\(s\) vector of species intercepts.}
+#'   \item{B}{\eqn{g \times p} matrix of archetype-specific regression
+#'     coefficients.}
+#'   \item{pi}{Length-\(g\) vector of mixing proportions.}
+#'   \item{U}{\eqn{n \times d} matrix of site scores.}
+#'   \item{Lambda}{\eqn{s \times d} matrix of species loadings.}
+#'   \item{phi}{Length-\(s\) vector of species-specific dispersion parameters
+#'     (for Gaussian family).}
+#'   \item{tau}{not available}
+#'   \item{penalized_loglik}{Final penalized log-likelihood value.}
+#'   \item{iterations}{Number of ECM iterations performed.}
+#'   \item{family}{The GLM family used.}
+#' }
+#'
+#' @examples
+#' \dontrun{
+#' set.seed(1)
+#' n <- 50; s <- 10; p <- 2
+#' X <- cbind(1, scale(matrix(rnorm(n * (p - 1)), n, p - 1)))
+#' Y <- matrix(rpois(n * s, lambda = 5), n, s)
+#' fit <- csam(Y, X, g = 2, d = 1, family = poisson(), trace = TRUE)
+#' plot.csam(fit, param = "pll")
+#' }
+#'
+#' @export
+#'
+#' @importFrom stats binomial nlminb
+#' @importFrom TMB MakeADFun sdreport
+csam_tmb <- function(Y, X, g = 3, d = 2, family = poisson(),
+                 psi1 = 1, psi2 = 1, U.random = FALSE, se = FALSE,
+                 nlminb.control = list(eval.max = 200, iter.max = 150, trace = FALSE),
+                 start = NULL, vanilla.sam = FALSE) {
+
+  n <- nrow(Y); s <- ncol(Y); p <- ncol(X)
+
+  # check if the supplied starting parameters are a fitted csam object and correct as needed
+  if (!is.null(start)) {
+    if (class(start) == "csam") {
+      start = start$par.list
+    }
+  }
+
+  safe_mean <- function(x) {
+    m <- mean(x, na.rm = TRUE)
+    eps <- 1e-6
+    if (family$family == "binomial") m <- pmin(pmax(m, eps), 1 - eps)
+    if (family$family == "poisson") m <- pmax(m, eps)
+    if (family$family == "gaussian") m <- m
+    family$linkfun(m)
+  }
+  beta0 <- if (!is.null(start$beta0)) { start$beta0 } else { apply(Y, 2, safe_mean) }
+  B <- if (!is.null(start$B)) { start$B } else { matrix(rnorm(g * p, 0, 0.1), g, p) }
+  pi <- if (!is.null(start$pi)) { start$pi } else { rep(1 / g, g) }
+  U <- if (!is.null(start$U)) { start$U } else { matrix(rnorm(n * d, 0, 0.1), n, d) }
+  Lambda <- if (!is.null(start$Lambda)) { start$Lambda } else { matrix(rnorm(s * d, 0, 0.1), s, d) }
+  phi <- if (!is.null(start$phi)) { start$phi } else { rep(1, s) }
+
+  # some checks on warm starts
+  if (g != nrow(B)) {
+    stop("mismatch between initial archetype parameters, B, and specified g")
+  }
+  if (p != ncol(B)) {
+    stop("mismatch between initial predictor parameters, B, and columns in supplied X")
+  }
+  if (s != length(beta0)) {
+    stop("mismatch between initial response intercepts, beta0, and response columns in supplied Y")
+  }
+  if (s != length(phi)) {
+    stop("mismatch between initial response dispersion parameters, phi, and response columns in supplied Y")
+  }
+  if (g != length(pi)) {
+    stop("mismatch between initial mixing parameters, pi, and specified g")
+  }
+  if (s != nrow(Lambda)) {
+    stop("mismatch between initial factor loadings, Lambda, and response columns in supplied Y")
+  }
+  if (n != nrow(U)) {
+    stop("mismatch between initial factor scores, U, and response rows in supplied Y")
+  }
+  if (d != ncol(Lambda)) {
+    stop("mismatch between initial factor loadings, Lambda, and specified d")
+  }
+  if (d != ncol(U)) {
+    stop("mismatch between initial factor scores, U, and specified d")
+  }
+
+  # set up the appropriate TMB lists for the objective function
+  par.list = list(
+    beta0 = beta0,
+    B = B,
+    logit_pi = stats::binomial()$linkfun(pi[1:(g - 1)]),
+    U = U,
+    Lambda = Lambda,
+    log_phi = log(phi)
+  )
+  data.list <- list(
+    Y = Y,
+    X =  X,
+    psi1 = 1,
+    psi2 = 1,
+    family = 1,  # 0=Poisson, 1=Binomial, 2=Gaussian,...
+    lik_type = as.numeric(U.random) # 0 = penalised, 1 = marginalised
+  )
+
+  # create the mapping of parameters according to csam type and family
+  mapping = list()
+  if (family$family %in% c("binomial", "poisson")) {
+    mapping$log_phi = factor(rep(NA, s))
+  }
+  if (vanilla.sam) {
+    mapping$U = factor(rep(NA, n * d))
+    mapping$Lambda = factor(rep(NA, s * d))
+  }
+
+  # set up the objective function
+  if (U.random) {
+    if (vanilla.sam) {
+      warning("Marginalised likelihood for a vanilla SAM will be slightly off")
+    }
+    obj <- TMB::MakeADFun(
+      data = data.list,
+      parameters = par.list,
+      DLL = "csam", random = "U", map = mapping,
+      silent = TRUE
+    )
+  } else {
+    obj <- TMB::MakeADFun(
+      data = data.list,
+      parameters = par.list,
+      DLL = "csam", map = mapping,
+      silent = TRUE
+    )
+  }
+
+  # fit the model
+  opt = stats::nlminb(obj$par, obj$fn, obj$gr, control = nlminb.control)
+
+  # adjust the parameters to the canonical setting
+  par.list = lapply(split(opt$par, names(opt$par)), unname)
+  par.list$B = matrix(par.list$B, nrow = g)
+  if (!is.null(par.list$U)) {
+    par.list$U = matrix(par.list$U, nrow = n)
+  }
+  if (!is.null(par.list$Lambda)) {
+    par.list$Lambda = matrix(par.list$Lambda, nrow = s)
+  }
+  par.list$pi = binomial()$linkinv(par.list$logit_pi)
+  par.list$pi[g] = 1 - sum(par.list$pi[1:(g - 1)])
+  par.list$logit_pi = NULL
+  if (family$family %in% c("binomial", "poisson")) {
+    par.list$phi = rep(1, s)
+  } else {
+    par.list$phi = exp(par.list$log_phi)
+    par.list$log_phi = NULL
+  }
+
+  # set up the output list to match other csam model objects
+  out = par.list
+  out$tau = NULL
+  out$par.list = par.list
+  out$penalized_loglik = if (U.random) {NA} else {-opt$objective}
+  out$marginalized_loglik = if (U.random) {-opt$objective} else {NA}
+  out$iterations = opt$iterations
+  out$family = family
+  out$Y = Y
+  out$X = X
+  out$psi1 = psi1
+  out$psi2 = psi2
+  out$g = g
+  out$d = d
+
+  # get standard errors if required
+  if (se) {
+    rep = TMB::sdreport(obj)
+    out$se = summary(rep)
+  }
 
   class(out) <- "csam"
   out

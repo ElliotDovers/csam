@@ -16,10 +16,10 @@ Type objective_function<Type>::operator() ()
   // ---- Shared PARAMETERS ----
   PARAMETER_VECTOR(beta0);
   PARAMETER_MATRIX(B);
-  PARAMETER_VECTOR(theta_pi);
+  PARAMETER_VECTOR(logit_pi);
   PARAMETER_MATRIX(U);
   PARAMETER_MATRIX(Lambda);
-  PARAMETER_VECTOR(logphi);
+  PARAMETER_VECTOR(log_phi);
 
   // ---- Dimensions ----
   int n = Y.rows();
@@ -31,16 +31,53 @@ Type objective_function<Type>::operator() ()
   // --- PARAMETER CONSTRAINTS
 
   // dispersion > 0
-  vector<Type> phi = logphi.exp();
+  vector<Type> phi = log_phi.exp();
 
   // 0 <= pi <= 1 (via softmax)
-  vector<Type> pi(g);
-  {
-    Type m = theta_pi.maxCoeff();
-    vector<Type> exp_theta = (theta_pi.array() - m).exp();
-    pi = exp_theta / exp_theta.sum();
-  }
+  // vector<Type> logpi(g);
+  // {
+  //   // subtract max for numerical stability
+  //   Type m = logit_pi.maxCoeff();
+  //
+  //   // compute exp(theta - m)
+  //   vector<Type> exp_theta = (logit_pi.array() - m).exp();
+  //
+  //   // compute log(sum(exp(theta - m)))
+  //   Type log_denom = log(exp_theta.sum()) + m;
+  //
+  //   // final log(pi_k)
+  //   for(int k = 0; k < g; k++) {
+  //     logpi(k) = logit_pi(k) - log_denom;
+  //   }
+  // }
 
+  // 0 <= pi <= 1 (via simplex w. stick-breaking)
+  vector<Type> logpi(g);
+  {
+    int m = g - 1;
+
+    vector<Type> logv(m);
+    vector<Type> log1mv(m);
+
+    // stable log(v_k) and log(1 - v_k)
+    for(int k = 0; k < m; k++) {
+      Type z = logit_pi(k);
+      logv(k)   = -log1p(exp(-z));
+      log1mv(k) = -log1p(exp(z));
+    }
+
+    // compute log(pi_k)
+    Type acc = Type(0);
+    for(int k = 0; k < m; k++) {
+      logpi(k) = logv(k) + acc;
+      acc += log1mv(k);
+    }
+
+    // final component
+    logpi(g - 1) = acc;
+  }
+  vector<Type> pi = logpi.exp();
+  REPORT(pi);
   // // Constraints on factor loadings
   // int idx = 0;
   // matrix<Type> Lambda_con(s, d);

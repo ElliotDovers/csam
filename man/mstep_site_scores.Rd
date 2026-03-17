@@ -4,20 +4,7 @@
 \alias{mstep_site_scores}
 \title{M-step: update site scores (latent site covariates) for CSAM}
 \usage{
-mstep_site_scores(
-  Y,
-  X,
-  B,
-  beta0,
-  Lambda,
-  U,
-  phi,
-  pi,
-  tau,
-  family,
-  psi1 = 0,
-  maxit = 1
-)
+mstep_site_scores(Y, X, par.list, tau, family, psi1 = 0, maxit = 1)
 }
 \arguments{
 \item{Y}{\strong{numeric matrix} of species responses with \eqn{n} rows (sites)
@@ -25,6 +12,20 @@ and \eqn{s} columns (species).}
 
 \item{X}{\strong{numeric matrix} design matrix with \eqn{n} rows (sites) and
 \eqn{p} columns (environmental covariates).}
+
+\item{tau}{\strong{numeric matrix} of posterior species-to-archetype probabilities
+with dimension \eqn{s \times g} (rows = species, columns = archetypes).}
+
+\item{family}{a \pkg{stats}-style family object (for example
+\code{gaussian()}, \code{binomial()}, \code{poisson()}). The function
+uses \code{family$linkinv}, \code{family$dev.resids} and related methods
+via the internal GLM solver.}
+
+\item{psi1}{\strong{numeric} nonnegative scalar penalty tuning parameter applied
+to site scores (ridge penalty). Default \code{0} (no penalty).}
+
+\item{maxit}{\strong{integer} maximum number of IRLS iterations passed to the
+internal \code{\link{penalized_glm_fit}} call (default \code{1}).}
 
 \item{B}{\strong{numeric matrix} of archetype regression coefficients with
 \eqn{g} rows and \eqn{p} columns (row \code{k} = coefficients for archetype \code{k}).}
@@ -42,20 +43,6 @@ not used directly by this function).}
 
 \item{pi}{\strong{numeric} vector of archetype mixing proportions (length \eqn{g});
 included for API consistency but not used directly in this update.}
-
-\item{tau}{\strong{numeric matrix} of posterior species-to-archetype probabilities
-with dimension \eqn{s \times g} (rows = species, columns = archetypes).}
-
-\item{family}{a \pkg{stats}-style family object (for example
-\code{gaussian()}, \code{binomial()}, \code{poisson()}). The function
-uses \code{family$linkinv}, \code{family$dev.resids} and related methods
-via the internal GLM solver.}
-
-\item{psi1}{\strong{numeric} nonnegative scalar penalty tuning parameter applied
-to site scores (ridge penalty). Default \code{0} (no penalty).}
-
-\item{maxit}{\strong{integer} maximum number of IRLS iterations passed to the
-internal \code{\link{penalized_glm_fit}} call (default \code{1}).}
 }
 \value{
 A numeric matrix of the same dimension as \code{U} (\eqn{n \times d})

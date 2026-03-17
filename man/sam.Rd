@@ -12,9 +12,11 @@ sam(
   max_iter = 100,
   tol = 1e-06,
   verbose = TRUE,
-  init = NULL,
-  maxit_step1 = 1,
-  maxit_step2 = 1,
+  start = NULL,
+  maxit_step1 = 5,
+  maxit_step2 = 5,
+  first_maxit_step1 = 50,
+  first_maxit_step2 = 50,
   trace = TRUE
 )
 }
@@ -36,7 +38,7 @@ with rows corresponding to sites and columns to species.}
 \item{verbose}{Logical; if \code{TRUE}, prints the penalized log-likelihood at
 each iteration.}
 
-\item{init}{Optional list of initial values with elements
+\item{start}{Optional list of initial values with elements
 \code{beta0}, \code{B}, \code{pi}, \code{phi}. Any missing elements are
 initialized internally.}
 

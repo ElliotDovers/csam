@@ -26,7 +26,7 @@
         Type mu  = linkinv<Type>(eta, family);
         ll_k += loglik_y<Type>(Y(i,j), mu, family, phi(j));
       }
-      loglik_k(k) = log(pi(k)) + ll_k;
+      loglik_k(k) = logpi(k) + ll_k;
     }
     nll -= log_sum_exp<Type>(loglik_k);
   }

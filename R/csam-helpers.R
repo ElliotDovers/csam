@@ -1096,18 +1096,18 @@ init.fa.pars_gllvm <- function(Y, X, g = 3, family = poisson(), d = 2) {
   n <- nrow(Y); s <- ncol(Y); p <- ncol(X)
 
   # initialise usual SAM parameters
-  start.pars = csam::init.sam.pars(Y, X, g = 3, family = family)
+  start.pars = csam::init.sam.pars(Y, X, g = g, family = family)
 
   # fit an initial species-specific models to obtain warm starts as in Hui et al. 2013
   beta0.init = vector("numeric", s)
   res = matrix(rep(0, n * s), n, s)
   for (sp in 1:s) {
     tmp.offset = X %*% start.pars$B[attr(start.pars,"sp clust")[sp], ]
-    tmp.m = glm.fit(x = rep(1, nrow(X)), y = Y[,sp], family = family, offset = tmp.offset)
-    res[ , sp] = statmod::qresid(tmp.m)
+    tmp.m = stats::glm(y ~ x, data = data.frame(x = rep(1, nrow(X)), y = Y[,sp]), family = family, offset = tmp.offset)
+    res[ , sp] = residuals(DHARMa::simulateResiduals(tmp.m))
   }
   # perform factor analysis on the residuals
-  tmp.fa = gllvm::gllvm(y = res, X = data.frame(int = matrix(rep(1, n), ncol = 1)), family = gaussian(), num.lv = d, control.va = list(starting.val = "random"))
+  tmp.fa = gllvm::gllvm(y = res, family = gaussian(), num.lv = d)
   tmp.dat = data.frame(y = as.vector(res), x = matrix(rep(1, n * s), ncol = 1))
 
   # update the starting parameters for the slopes and intercepts

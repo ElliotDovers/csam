@@ -1103,7 +1103,7 @@ init.fa.pars_gllvm <- function(Y, X, g = 3, family = poisson(), d = 2) {
   for (sp in 1:s) {
     tmp.offset = X %*% start.pars$B[attr(start.pars,"sp clust")[sp], ]
     tmp.m = stats::glm(y ~ x, data = data.frame(x = rep(1, nrow(X)), y = Y[,sp]), family = family, offset = tmp.offset)
-    res[ , sp] = DHARMa:::residuals.DHARMa(DHARMa::simulateResiduals(tmp.m), quantileFunction = qnorm)
+    res[ , sp] = statmod::qresiduals(tmp.m)
   }
   # perform factor analysis on the residuals
   tmp.fa = gllvm::gllvm(y = res, family = gaussian(), num.lv = d)
@@ -1173,7 +1173,8 @@ init.fa.pars_gllvm <- function(Y, X, g = 3, family = poisson(), d = 2) {
 #' @export
 #'
 #' @importFrom glmmTMB glmmTMB getME
-#' @importFrom DHARMa simulateResiduals
+#' @importFrom statmod qresiduals
+#' @importFrom stats glm
 init.fa.pars <- function(Y, X, g = 3, family = poisson(), d = 2) {
 
   n <- nrow(Y); s <- ncol(Y); p <- ncol(X)
@@ -1185,14 +1186,16 @@ init.fa.pars <- function(Y, X, g = 3, family = poisson(), d = 2) {
   res = matrix(rep(0, n * s), n, s)
   for (sp in 1:s) {
     tmp.offset = X %*% start.pars$B[attr(start.pars,"sp clust")[sp], ]
-    tmp.m = glmmTMB::glmmTMB(y ~ 1, data = data.frame(y = Y[,sp]), family = family, offset = tmp.offset)
+    tmp.m = stats::glm(y ~ 1, data = data.frame(y = Y[,sp]), family = family, offset = tmp.offset)
+    # tmp.m = glmmTMB::glmmTMB(y ~ 1, data = data.frame(y = Y[,sp]), family = family, offset = tmp.offset)
     # if (family$family == "binomial") {
     #   tmp.m = glmmTMB::glmmTMB(cbind(y, 1 - y) ~ 1, data = data.frame(y = Y[,sp]), family = family, offset = tmp.offset)
     # } else {
     #   tmp.m = glmmTMB::glmmTMB(y ~ 1, data = data.frame(y = Y[,sp]), family = family, offset = tmp.offset)
     # }
     # res[ , sp] = glmmTMB:::residuals.glmmTMB(tmp.m, type = "dunn-smyth")
-    res[ , sp] = DHARMa:::residuals.DHARMa(DHARMa::simulateResiduals(tmp.m), quantileFunction = qnorm)
+    # res[ , sp] = DHARMa:::residuals.DHARMa(DHARMa::simulateResiduals(tmp.m), quantileFunction = qnorm)
+    res[ , sp] = statmod::qresiduals(tmp.m)
   }
 
   # put data in long format

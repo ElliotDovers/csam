@@ -1099,12 +1099,11 @@ init.fa.pars_gllvm <- function(Y, X, g = 3, family = poisson(), d = 2) {
   start.pars = csam::init.sam.pars(Y, X, g = g, family = family)
 
   # fit an initial species-specific models to obtain warm starts as in Hui et al. 2013
-  beta0.init = vector("numeric", s)
   res = matrix(rep(0, n * s), n, s)
   for (sp in 1:s) {
     tmp.offset = X %*% start.pars$B[attr(start.pars,"sp clust")[sp], ]
     tmp.m = stats::glm(y ~ x, data = data.frame(x = rep(1, nrow(X)), y = Y[,sp]), family = family, offset = tmp.offset)
-    res[ , sp] = residuals(DHARMa::simulateResiduals(tmp.m))
+    res[ , sp] = DHARMa:::residuals.DHARMa(DHARMa::simulateResiduals(tmp.m), quantileFunction = qnorm)
   }
   # perform factor analysis on the residuals
   tmp.fa = gllvm::gllvm(y = res, family = gaussian(), num.lv = d)
@@ -1174,6 +1173,7 @@ init.fa.pars_gllvm <- function(Y, X, g = 3, family = poisson(), d = 2) {
 #' @export
 #'
 #' @importFrom glmmTMB glmmTMB getME
+#' @importFrom DHARMa simulateResiduals
 init.fa.pars <- function(Y, X, g = 3, family = poisson(), d = 2) {
 
   n <- nrow(Y); s <- ncol(Y); p <- ncol(X)
@@ -1182,7 +1182,6 @@ init.fa.pars <- function(Y, X, g = 3, family = poisson(), d = 2) {
   start.pars = csam::init.sam.pars(Y, X, g = g, family = family)
 
   # fit an initial species-specific models to obtain warm starts as in Hui et al. 2013
-  beta0.init = vector("numeric", s)
   res = matrix(rep(0, n * s), n, s)
   for (sp in 1:s) {
     tmp.offset = X %*% start.pars$B[attr(start.pars,"sp clust")[sp], ]
@@ -1193,7 +1192,7 @@ init.fa.pars <- function(Y, X, g = 3, family = poisson(), d = 2) {
     #   tmp.m = glmmTMB::glmmTMB(y ~ 1, data = data.frame(y = Y[,sp]), family = family, offset = tmp.offset)
     # }
     # res[ , sp] = glmmTMB:::residuals.glmmTMB(tmp.m, type = "dunn-smyth")
-    res[ , sp] = residuals(DHARMa::simulateResiduals(tmp.m))
+    res[ , sp] = DHARMa:::residuals.DHARMa(DHARMa::simulateResiduals(tmp.m), quantileFunction = qnorm)
   }
 
   # put data in long format

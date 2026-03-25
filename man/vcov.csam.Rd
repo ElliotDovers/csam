@@ -4,13 +4,20 @@
 \alias{vcov.csam}
 \title{Variance-covariance estimators for csam fits (analytic, modular)}
 \usage{
-\method{vcov}{csam}(object, method = c("naive", "louis", "tmb", "sandwich"), ...)
+\method{vcov}{csam}(
+  object,
+  method = c("naive", "louis", "tmb", "sandwich"),
+  U.random = TRUE,
+  ...
+)
 }
 \arguments{
 \item{object}{A fitted object of class \code{"csam"} (must contain \code{Y}, \code{X},
 \code{psi1}, and \code{psi2}).}
 
-\item{method}{Character; one of \code{"naive"}, \code{"louis"}, \code{"oakes"}, \code{"sandwich"}.}
+\item{method}{Character; one of \code{"naive"}, \code{"louis"}, \code{"tmb"}, \code{"sandwich"}.}
+
+\item{U.random}{Logical; indicating whether to treat site effects as fixed or random when using \code{method = "tmb"}.}
 
 \item{...}{Currently unused.}
 }

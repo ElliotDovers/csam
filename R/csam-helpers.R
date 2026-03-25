@@ -1173,7 +1173,7 @@ init.fa.pars_gllvm <- function(Y, X, g = 3, family = poisson(), d = 2) {
 #' @export
 #'
 #' @importFrom glmmTMB glmmTMB getME
-#' @importFrom statmod qresiduals
+#' @importFrom DHARMa simulateResiduals
 #' @importFrom stats glm
 init.fa.pars <- function(Y, X, g = 3, family = poisson(), d = 2) {
 
@@ -1183,23 +1183,50 @@ init.fa.pars <- function(Y, X, g = 3, family = poisson(), d = 2) {
   start.pars = csam::init.sam.pars(Y, X, g = g, family = family)
 
   # fit an initial species-specific models to obtain warm starts as in Hui et al. 2013
+
+  # with hard class labelling:
   res = matrix(rep(0, n * s), n, s)
   for (sp in 1:s) {
-    tmp.offset = X %*% start.pars$B[attr(start.pars,"sp clust")[sp], ]
-    tmp.m = stats::glm(y ~ 1, data = data.frame(y = Y[,sp]), family = family, offset = tmp.offset)
-    # tmp.m = glmmTMB::glmmTMB(y ~ 1, data = data.frame(y = Y[,sp]), family = family, offset = tmp.offset)
-    # if (family$family == "binomial") {
-    #   tmp.m = glmmTMB::glmmTMB(cbind(y, 1 - y) ~ 1, data = data.frame(y = Y[,sp]), family = family, offset = tmp.offset)
-    # } else {
-    #   tmp.m = glmmTMB::glmmTMB(y ~ 1, data = data.frame(y = Y[,sp]), family = family, offset = tmp.offset)
-    # }
-    # res[ , sp] = glmmTMB:::residuals.glmmTMB(tmp.m, type = "dunn-smyth")
-    # res[ , sp] = DHARMa:::residuals.DHARMa(DHARMa::simulateResiduals(tmp.m), quantileFunction = qnorm)
-    res[ , sp] = statmod::qresiduals(tmp.m)
+    if (family$family == "binomial") {
+      tmp.offset = start.pars$beta0[sp] + X %*% start.pars$B[attr(start.pars,"sp clust")[sp], ]
+      tmp.m = stats::glm(y ~ 0, data = data.frame(y = Y[,sp]), family = family, offset = tmp.offset)
+      res[ , sp] = DHARMa:::residuals.DHARMa(DHARMa::simulateResiduals(tmp.m), quantileFunction = qnorm)
+    } else {
+      tmp.offset = X %*% start.pars$B[attr(start.pars,"sp clust")[sp], ]
+      tmp.m = glmmTMB::glmmTMB(y ~ 1, data = data.frame(y = Y[,sp]), family = family, offset = tmp.offset)
+      res[ , sp] = glmmTMB:::residuals.glmmTMB(tmp.m, type = "dunn-smyth")
+    }
+    # res[ , sp] = glmmTMB:::residuals.glmmTMB(tmp.m, type = "dunn-smyth") # CON: uses an unexported function, throws error for binomial, requires glmmTMB() rather than glm() above
+    # res[ , sp] = DHARMa:::residuals.DHARMa(DHARMa::simulateResiduals(tmp.m), quantileFunction = qnorm) # CON: uses a non-exported function
+    # res[ , sp] = DHARMa::simulateResiduals(tmp.m)$scaledResiduals
+    # res[ , sp] = statmod::qresiduals(tmp.m) # CON: leads to Inf/-Inf values
   }
+
+  # # with weights for each archetype:
+  # res = matrix(rep(0, n * s * g), n * g, s)
+  # for (j in 1:s) {
+  #   y_stack <- rep(NA, n * g)
+  #   weights_stack <- rep(0, n * g)
+  #   offset_stack <- rep(0, n * g)
+  #   for (k in 1:g) {
+  #     idx <- ((k - 1) * n + 1):(k * n)
+  #     y_stack[idx] <- Y[, j]
+  #     offset_stack[idx] <- as.vector(X %*% start.pars$B[k, ])
+  #     weights_stack[idx] <- start.pars$pi[k]
+  #   }
+  #   # tmp.m = stats::glm(y ~ 0, data = data.frame(y = y_stack), family = family, offset = offset_stack, weights = weights_stack) # CON: see options for qresiduals below
+  #   if (family$family == "binomial") {
+  #     tmp.m = glmmTMB::glmmTMB(cbind(y, 1 - y) ~ 1, data = data.frame(y = y_stack), family = family, offset = offset_stack, weights = weights_stack)
+  #     res[ , j] = DHARMa:::residuals.DHARMa(DHARMa::simulateResiduals(tmp.m), quantileFunction = qnorm)
+  #   } else {
+  #     tmp.m = glmmTMB::glmmTMB(y ~ 1, data = data.frame(y = y_stack), family = family, offset = offset_stack, weights = weights_stack)
+  #     res[ , j] = glmmTMB:::residuals.glmmTMB(tmp.m, type = "dunn-smyth")
+  #   }
+  # }
 
   # put data in long format
   tmp.dat = data.frame(res = as.vector(res), sp = factor(rep(1:s, each = nrow(res))), site = factor(rep(1:n, s)))
+  # tmp.dat = data.frame(res = as.vector(res), sp = factor(rep(1:s, each = nrow(res))), site = factor(rep(1:n, s * g)), wt = rep(rep(start.pars$pi, each = n), s))
   # perform factor analysis on the residuals
   tmp.fa = glmmTMB::glmmTMB(res ~  0 + rr(sp + 0|site, d = d), data = tmp.dat, family = gaussian)
 

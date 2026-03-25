@@ -365,7 +365,7 @@ sam <- function(Y, X, g = 3, family = poisson(),
                 max_iter = 100, tol = 1e-6,
                 verbose = TRUE, start = NULL,
                 maxit_step1 = 5, maxit_step2 = 5,
-                first_maxit_step1 = 50, first_maxit_step2 = 50,
+                #first_maxit_step1 = 50, first_maxit_step2 = 50,
                 trace = TRUE) {
 
   n <- nrow(Y); s <- ncol(Y); p <- ncol(X)
@@ -443,21 +443,25 @@ sam <- function(Y, X, g = 3, family = poisson(),
     }
     # tau <- estep0_post_probs(Y = Y, X = X, par.list = par.list, family = family)
 
-    if (iter == 1) {
-      par.list$B <- mstep0_arch_pars(Y = Y, X = X, par.list = par.list, tau = tau,
-                                     family = family, maxit = first_maxit_step1)
-    } else {
-      par.list$B <- mstep0_arch_pars(Y = Y, X = X, par.list = par.list, tau = tau,
-                                     family = family, maxit = maxit_step1)
-    }
+    # if (iter == 1) {
+    #   par.list$B <- mstep0_arch_pars(Y = Y, X = X, par.list = par.list, tau = tau,
+    #                                  family = family, maxit = first_maxit_step1)
+    # } else {
+    #   par.list$B <- mstep0_arch_pars(Y = Y, X = X, par.list = par.list, tau = tau,
+    #                                  family = family, maxit = maxit_step1)
+    # }
+    par.list$B <- mstep0_arch_pars(Y = Y, X = X, par.list = par.list, tau = tau,
+                                   family = family, maxit = maxit_step1)
 
-    if (iter == 1) {
-      sp <- mstep0_species_pars(Y = Y, X = X, par.list = par.list, tau = tau,
-                                family = family, maxit = first_maxit_step2)
-    } else {
-      sp <- mstep0_species_pars(Y = Y, X = X, par.list = par.list, tau = tau,
-                                family = family, maxit = maxit_step2)
-    }
+    # if (iter == 1) {
+    #   sp <- mstep0_species_pars(Y = Y, X = X, par.list = par.list, tau = tau,
+    #                             family = family, maxit = first_maxit_step2)
+    # } else {
+    #   sp <- mstep0_species_pars(Y = Y, X = X, par.list = par.list, tau = tau,
+    #                             family = family, maxit = maxit_step2)
+    # }
+    sp <- mstep0_species_pars(Y = Y, X = X, par.list = par.list, tau = tau,
+                              family = family, maxit = maxit_step2)
 
     par.list$beta0  <- sp$beta0
     par.list$phi    <- sp$phi
@@ -465,24 +469,13 @@ sam <- function(Y, X, g = 3, family = poisson(),
     par.list$pi <- colMeans(tau)
     par.list$pi <- par.list$pi / sum(par.list$pi)
 
-    # ll <- 0
-    # for (j in 1:s) {
-    #   yj <- Y[, j]
-    #
-    #   comp <- numeric(g)
-    #   for (k in 1:g) {
-    #     eta <- beta0[j] + X %*% B[k, ]
-    #     mu  <- family$linkinv(eta)
-    #     dev <- family$dev.resids(y = yj, mu = mu, wt = rep(1, n))
-    #     ll_comp <- -0.5 * family$aic(yj, rep(1, n), mu, rep(1, n), dev)
-    #     comp[k] <- sum(ll_comp) + log(pi[k])
-    #   }
-    #   m <- max(comp)
-    #   ll <- ll + m + log(sum(exp(comp - m)))
-    # }
-    #
-    # pll <- ll
     pll <- mzll(Y, X, par.list, g = g, d = 1, family = family)
+
+    if (!is.finite(pll)) {
+      warning("log-likelihood became non-finite; stopping")
+      conv = NA
+      break
+    }
 
     if (verbose) {
       cat(sprintf("Iter %3d: log-lik = %.6f\n", iter, pll))
@@ -505,9 +498,13 @@ sam <- function(Y, X, g = 3, family = poisson(),
       }
     }
 
-    if (abs(pll - prev_pll) < tol) { break }
+    if (abs(pll - prev_pll) < tol) {
+      conv = 0
+      break
+    }
 
     prev_pll <- pll
+    conv = 1
 
   }
 
@@ -534,7 +531,8 @@ sam <- function(Y, X, g = 3, family = poisson(),
     family = family,
     Y = Y,
     X = X,
-    g = g
+    g = g,
+    convergence = conv
   )
 
   if (trace) out$trace <- trace_store
@@ -647,6 +645,13 @@ csam_tmb <- function(Y, X, g = 3, d = 2, family = poisson(),
   U <- if (!is.null(start$U)) { start$U } else { matrix(rnorm(n * d, 0, 0.1), n, d) }
   Lambda <- if (!is.null(start$Lambda)) { start$Lambda } else { matrix(rnorm(s * d, 0, 0.1), s, d) }
   phi <- if (!is.null(start$phi)) { start$phi } else { rep(1, s) }
+
+  # adjust the start parameters for factor analytic terms when fitting a vanilla SAM
+  if (vanilla.sam) {
+    # set both to zero which will be mapped in the objective function later
+    Lambda = matrix(rep(0, s * d), s, d)
+    U <- matrix(rep(0, n * d), n, d)
+  }
 
   # some checks on warm starts
   if (g != nrow(B)) {

@@ -347,7 +347,8 @@ plot.csam <- function(x,
 #'
 #' @param object A fitted object of class `"csam"` (must contain `Y`, `X`,
 #'   `psi1`, and `psi2`).
-#' @param method Character; one of `"naive"`, `"louis"`, `"oakes"`, `"sandwich"`.
+#' @param method Character; one of `"naive"`, `"louis"`, `"tmb"`, `"sandwich"`.
+#' @param U.random Logical; indicating whether to treat site effects as fixed or random when using \code{method = "tmb"}.
 #' @param ... Currently unused.
 #'
 #' @return A symmetric variance-covariance matrix for the full parameter
@@ -366,10 +367,12 @@ plot.csam <- function(x,
 #' @importFrom TMB sdreport MakeADFun
 vcov.csam <- function(object,
                       method = c("naive", "louis", "tmb", "sandwich"),
+                      U.random = TRUE,
                        ...) {
 
   method <- match.arg(method)
 
+  n <- nrow(object$Y)
   s <- ncol(object$Y)
   g <- nrow(object$B)
 
@@ -430,43 +433,68 @@ vcov.csam <- function(object,
 
   } else if (method == "tmb") {
 
+    # determine if the model is a vanilla SAM
+    vanilla.sam <- is.null(object$Lambda)
+
     # set up required data list for the AD function
-    data_list <- list(
+    data.list <- list(
       Y = object$Y,
       X = object$X,
-      psi1 = object$psi1,
-      psi2 = object$psi2,
+      psi1 = if (!vanilla.sam) { object$psi1 } else { 0 },
+      psi2 = if (!vanilla.sam) { object$psi2 } else { 0 },
       family = switch(object$family$family,
                       poisson = 0,
                       binomial = 1,
                       gaussian = 2),  # 0=Poisson, 1=Binomial, 2=Gaussian,...
-      lik_type = 1 # get's the likelihood that marginalises U
+      lik_type = as.numeric(U.random)
     )
     # set up required parameter list for the AD function
-    start.pars.tmb = object[1:6]
-    start.pars.tmb$logit_pi = stats::binomial()$linkfun(object$pi[-g])
+    start.pars.tmb = object$par.list
+    start.pars.tmb$logit_pi = stats::binomial()$linkfun(object$par.list$pi[-g])
     start.pars.tmb$pi = NULL
-    start.pars.tmb$log_phi = log(object$phi)
+    start.pars.tmb$log_phi = log(object$par.list$phi)
     start.pars.tmb$phi = NULL
 
-    # set up mapping if present
+    # create the mapping of parameters according to family
+    mapping = list()
     if (object$family$family %in% c("binomial", "poisson")) {
+      mapping$log_phi = factor(rep(NA, s))
+    }
+    # adjust inputs according to if the model is a vanilla SAM
+    if (vanilla.sam) {
+      start.pars.tmb$Lambda = matrix(rep(0, s), s, 1)
+      start.pars.tmb$U <- matrix(rep(0, n), n, 1)
+      data.list$lik_type = 0
+      mapping$U = factor(rep(NA, n * 1))
+      mapping$Lambda = factor(rep(NA, s * 1))
+    }
+
+    # set up the objective function
+    if (U.random) {
+      if (vanilla.sam) {
+        warning("Marginalised likelihood for a vanilla SAM will be slightly off")
+      }
       obj <- TMB::MakeADFun(
-        data = data_list,
+        data = data.list,
         parameters = start.pars.tmb,
-        DLL = "csam", random = "U", map = list(log_phi = factor(rep(NA, s))), # for now fixing these to cheat into non-singular matrix
+        DLL = "csam", random = "U", map = mapping,
         silent = TRUE
       )
     } else {
       obj <- TMB::MakeADFun(
-        data = data_list,
+        data = data.list,
         parameters = start.pars.tmb,
-        DLL = "csam", random = "U",
+        DLL = "csam", map = mapping,
         silent = TRUE
       )
     }
+
     rep <- TMB::sdreport(obj, getJointPrecision = TRUE)
-    covmat = solve(as.matrix(rep$jointPrecision))
+    if (U.random) {
+      covmat = solve(as.matrix(rep$jointPrecision))
+    } else {
+      covmat = rep$cov.fixed
+    }
 
   } else if (method == "sandwich") {
 

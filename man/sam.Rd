@@ -15,8 +15,6 @@ sam(
   start = NULL,
   maxit_step1 = 5,
   maxit_step2 = 5,
-  first_maxit_step1 = 50,
-  first_maxit_step2 = 50,
   trace = TRUE
 )
 }

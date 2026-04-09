@@ -1,4 +1,4 @@
-simulate_csam_data <- function(n, s, g, d, p, true.pars = list(), covariate.matrix = NULL, family = poisson(), seed, plotting = TRUE) {
+simulate_csam_data <- function(n, s, g, d, p, true.pars = list(), true.sp.arch = NULL, covariate.matrix = NULL, family = poisson(), seed, plotting = TRUE) {
 
   set.seed(seed)
 
@@ -11,7 +11,12 @@ simulate_csam_data <- function(n, s, g, d, p, true.pars = list(), covariate.matr
   phi   <- if (!is.null(true.pars$phi))   {true.pars$phi}   else {rep(1, s)}
 
   # true indicators for species
-  z0 = sample(1:g, s, replace = T, prob = pi)
+  if (is.null(true.sp.arch)) {
+    z0 = sample(1:g, s, replace = T, prob = pi)
+  } else {
+    if (length(true.sp.arch) != s) { stop("true.sp.arch: vector of archetype labels for species doesn't not match the number of species, s, provided!") }
+    z0 = true.sp.arch
+  }
 
   # env. covariate
   x <- if (!is.null(covariate.matrix)) {covariate.matrix} else {matrix(rnorm(n * p), n, p)}

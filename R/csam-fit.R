@@ -683,7 +683,7 @@ csam_tmb <- function(Y, X, g = 3, d = 2, family = poisson(),
   }
 
   # set up the appropriate TMB lists for the objective function
-  par.list = list(
+  par.list.init = list(
     beta0 = beta0,
     B = B,
     logit_pi = stats::binomial()$linkfun(pi[1:(g - 1)]),
@@ -717,14 +717,14 @@ csam_tmb <- function(Y, X, g = 3, d = 2, family = poisson(),
     }
     obj <- TMB::MakeADFun(
       data = data.list,
-      parameters = par.list,
+      parameters = par.list.init,
       DLL = "csam", random = "U", map = mapping,
       silent = TRUE
     )
   } else {
     obj <- TMB::MakeADFun(
       data = data.list,
-      parameters = par.list,
+      parameters = par.list.init,
       DLL = "csam", map = mapping,
       silent = TRUE
     )
@@ -736,6 +736,9 @@ csam_tmb <- function(Y, X, g = 3, d = 2, family = poisson(),
   # adjust the parameters to the canonical setting
   par.list = lapply(split(opt$par, names(opt$par)), unname)
   par.list$B = matrix(par.list$B, nrow = g)
+  if (U.random) {
+    par.list$U = obj$env$parList()$U
+  }
   if (!is.null(par.list$U)) {
     par.list$U = matrix(par.list$U, nrow = n)
   }
@@ -754,7 +757,7 @@ csam_tmb <- function(Y, X, g = 3, d = 2, family = poisson(),
 
   # set up the output list to match other csam model objects
   out = par.list
-  out$tau = NULL
+  out$tau = tau_from_tmb_fit(Y, X, par.list, family)
   out$par.list = par.list
   out$penalized_loglik = if (U.random) {NA} else {-opt$objective}
   out$marginalized_loglik = if (U.random) {-opt$objective} else {NA}
@@ -766,6 +769,7 @@ csam_tmb <- function(Y, X, g = 3, d = 2, family = poisson(),
   out$psi2 = psi2
   out$g = g
   out$d = d
+  out$convergence = opt$convergence
 
   # get standard errors if required
   if (se) {

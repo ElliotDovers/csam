@@ -1101,9 +1101,15 @@ init.fa.pars_gllvm <- function(Y, X, g = 3, family = poisson(), d = 2) {
   # fit an initial species-specific models to obtain warm starts as in Hui et al. 2013
   res = matrix(rep(0, n * s), n, s)
   for (sp in 1:s) {
-    tmp.offset = X %*% start.pars$B[attr(start.pars,"sp clust")[sp], ]
-    tmp.m = stats::glm(y ~ x, data = data.frame(x = rep(1, nrow(X)), y = Y[,sp]), family = family, offset = tmp.offset)
-    res[ , sp] = statmod::qresiduals(tmp.m)
+    if (family$family == "binomial") {
+      tmp.offset = start.pars$beta0[sp] + X %*% start.pars$B[attr(start.pars,"sp clust")[sp], ]
+      tmp.m = stats::glm(y ~ 0, data = data.frame(y = Y[,sp]), family = family, offset = tmp.offset)
+      res[ , sp] = DHARMa:::residuals.DHARMa(DHARMa::simulateResiduals(tmp.m), quantileFunction = qnorm)
+    } else {
+      tmp.offset = X %*% start.pars$B[attr(start.pars,"sp clust")[sp], ]
+      tmp.m = glmmTMB::glmmTMB(y ~ 1, data = data.frame(y = Y[,sp]), family = family, offset = tmp.offset)
+      res[ , sp] = glmmTMB:::residuals.glmmTMB(tmp.m, type = "dunn-smyth")
+    }
   }
   # perform factor analysis on the residuals
   tmp.fa = gllvm::gllvm(y = res, family = gaussian(), num.lv = d)
@@ -1311,3 +1317,128 @@ mzll <- function(Y, X, par.list, g = 3, d = 2, family = poisson(),
   pll
 }
 
+#' Calculate the fitted values of a CSAM/SAM, \eqn{\mu_{ijk}}, and compute the posterior predictive mean (internal)
+#'
+#' @keywords internal
+.fitted_csam_internal <- function(par.list, X, tau, family,
+                           type = c("response", "link"),
+                           archetype_specific = FALSE) {
+
+  type <- match.arg(type)
+
+  beta0  <- par.list$beta0      # length s
+  B      <- par.list$B          # g × p
+  U      <- par.list$U          # n × d or NULL
+  Lambda <- par.list$Lambda     # s × d or NULL
+
+  n <- nrow(X)
+  s <- length(beta0)
+  g <- nrow(B)
+
+  # --- linear predictor components ---
+  XB <- X %*% t(B)   # n × g
+
+  # factor-analytic term (correlated CSAM)
+  if (!is.null(U) && !is.null(Lambda)) {
+    UL <- U %*% t(Lambda)   # n × s
+  } else {
+    UL <- matrix(0, n, s)   # standard SAM
+  }
+
+  # allocate eta: n × s × g
+  eta <- array(0, dim = c(n, s, g))
+
+  # fill eta for each archetype
+  for (k in 1:g) {
+    # eta_{ijk} = beta0_j + XB_{ik} + UL_{ij}
+    eta[,,k] <- sweep(UL, 2, beta0, "+") + XB[,k]
+  }
+
+  # return archetype-specific linear predictors if requested
+  if (archetype_specific && type == "link") {
+    return(eta)
+  }
+
+  # inverse link
+  invlink <- family$linkinv
+  mu <- invlink(eta)   # n × s × g
+
+  # return archetype-specific responses if requested
+  if (archetype_specific && type == "response") {
+    return(mu)
+  }
+
+  # --- posterior predictive mean (default) ---
+  # response scale:
+  #   fitted_{ij} = sum_k tau[j,k] * mu_{ijk}
+  #
+  # link scale:
+  #   fitted_{ij} = sum_k tau[j,k] * eta_{ijk}
+
+  if (type == "response") {
+    out <- matrix(0, n, s)
+    for (k in 1:g) {
+      out <- out + mu[,,k] * rep(tau[,k], each = n)
+    }
+    return(out)
+  }
+
+  if (type == "link") {
+    out <- matrix(0, n, s)
+    for (k in 1:g) {
+      out <- out + eta[,,k] * rep(tau[,k], each = n)
+    }
+    return(out)
+  }
+}
+
+#' Calculate the posterior membership probabilities for a model fitted via TMB (internal)
+#'
+#' @keywords internal
+tau_from_tmb_fit <- function(Y, X, par.list, family) {
+  n <- nrow(Y); s <- ncol(Y)
+  beta0  <- par.list$beta0
+  B      <- par.list$B      # g × p
+  U      <- par.list$U
+  pi     <- par.list$pi     # length g
+  Lambda <- par.list$Lambda # s × d
+  phi    <- par.list$phi
+  g      <- nrow(B)
+
+  # linear predictor pieces
+  XB <- X %*% t(B)              # n × g
+  # factor-analytic term (correlated CSAM)
+  if (!is.null(U) && !is.null(Lambda)) {
+    UL <- U %*% t(Lambda)   # n × s
+  } else {
+    UL <- matrix(0, n, s)   # standard SAM
+  }
+
+  # eta: n × s × g
+  eta <- array(0, dim = c(n, s, g))
+  for (k in 1:g) {
+    eta[,,k] <- sweep(UL, 2, beta0, "+") + XB[,k]
+  }
+
+  mu <- family$linkinv(eta)     # n × s × g
+
+  # log-likelihood per species j, archetype k
+  loglik <- matrix(0, s, g)
+  for (k in 1:g) {
+    for (j in 1:s) {
+      yj  <- Y[, j]
+      muj <- mu[, j, k]
+      dev <- family$dev.resids(yj, muj, wt = rep(1, n))
+      ll  <- -0.5 * family$aic(yj, rep(1, n), muj, rep(1, n), dev)
+      loglik[j, k] <- sum(ll)
+    }
+  }
+
+  # add log pi and normalise
+  log_post <- sweep(loglik, 2, log(pi), "+")
+  log_post <- log_post - apply(log_post, 1, max)  # stabilise
+  post_unnorm <- exp(log_post)
+  tau <- post_unnorm / rowSums(post_unnorm)
+
+  tau
+}

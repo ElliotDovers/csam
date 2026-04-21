@@ -289,38 +289,57 @@ penalized_glm_fit <- function(X, y, weights = NULL, offset = NULL,
 #' @seealso \code{\link[stats]{family}}
 #' @export
 estep_post_probs <- function(Y, X, par.list, family,
-                             trunc.interval = FALSE) {
+                                  trunc.interval = FALSE) {
 
-  beta0 = par.list$beta0; B = par.list$B; pi = par.list$pi; U = par.list$U; Lambda = par.list$Lambda; phi = par.list$phi
+  beta0  <- par.list$beta0
+  B      <- par.list$B
+  pi     <- par.list$pi
+  U      <- par.list$U
+  Lambda <- par.list$Lambda
 
-  n <- nrow(Y); s <- ncol(Y); g <- nrow(B)
+  n <- nrow(Y)
+  s <- ncol(Y)
+  g <- nrow(B)
 
-  loglik_mat <- matrix(NA, s, g)
+  ## ---- Shared linear predictor components (computed once) ----
+  XB <- X %*% t(B)          # n × g
+  UL <- U %*% t(Lambda)     # n × s
 
-  for (j in 1:s) {
+  loglik_mat <- matrix(0, s, g)
+
+  ## ---- E-step loops (species-level, parallelisable) ----
+  for (j in seq_len(s)) {
+
     yj <- Y[, j]
-    lambda_j <- Lambda[j, , drop = FALSE]
-    offset_common <- as.vector(U %*% t(lambda_j))
+    eta_base <- beta0[j] + UL[, j]
 
-    for (k in 1:g) {
-      eta <- beta0[j] + X %*% B[k, ] + offset_common
+    for (k in seq_len(g)) {
+
+      eta <- eta_base + XB[, k]
       mu  <- family$linkinv(eta)
 
+      ## deviances already include all family-specific terms
       dev <- family$dev.resids(yj, mu, wt = rep(1, n))
-      ll  <- -0.5 * family$aic(yj, rep(1, n), mu, rep(1, n), dev)
 
-      loglik_mat[j, k] <- sum(ll)
+      ## relative log-likelihood (constants drop out)
+      loglik_mat[j, k] <- -0.5 * sum(dev)
     }
   }
 
+  ## ---- Posterior normalisation (softmax) ----
   logpost <- sweep(loglik_mat, 2, log(pi), "+")
-  tau <- exp(logpost - apply(logpost, 1, max))
-  tau <- tau / rowSums(tau)
 
+  ## stabilise row-wise
+  row_max <- apply(logpost, 1, max)
+  post_unnorm <- exp(logpost - row_max)
+  tau <- post_unnorm / rowSums(post_unnorm)
+
+  ## ---- Optional truncation (unchanged) ----
   if (trunc.interval) {
     alpha <- (1 - 0.8 * g) / ((0.8 * 2 - g) - 1)
     tau <- apply(tau, 2, function(x) {
-      ((2 * alpha * x) - alpha + 1) / ((2 * alpha) - (alpha * g) + g)
+      ((2 * alpha * x) - alpha + 1) /
+        ((2 * alpha) - (alpha * g) + g)
     })
   }
 
@@ -418,17 +437,26 @@ mstep_arch_pars <- function(Y, X, par.list, tau,
     )
   }
 
-  for (k in 1:g) {
+  ## ---- Shared linear predictor (fixed in this CM-step) ----
+  UL <- U %*% t(Lambda)    # n × s
 
-    y_stack <- as.vector(Y)
-    X_stack <- do.call(rbind, replicate(s, X, simplify = FALSE))
+  ## ---- Pre-build stacked design matrix ONCE ----
+  # Stack X by species
+  X_stack <- X[rep(seq_len(n), times = s), ]
 
-    offset_stack <- rep(0, n * s)
-    weights_stack <- rep(0, n * s)
+  ns <- n * s
+  y_stack       <- numeric(ns)
+  offset_stack  <- numeric(ns)
+  weights_stack <- numeric(ns)
 
-    for (j in 1:s) {
+  for (k in seq_len(g)) {
+
+    ## ---- Fill stacked vectors by species ----
+    for (j in seq_len(s)) {
       idx <- ((j - 1) * n + 1):(j * n)
-      offset_stack[idx] <- beta0[j] + as.vector(U %*% Lambda[j, ])
+
+      y_stack[idx]       <- Y[, j]
+      offset_stack[idx]  <- beta0[j] + UL[, j]
       weights_stack[idx] <- tau[j, k]
     }
 
@@ -539,62 +567,77 @@ mstep_arch_pars <- function(Y, X, par.list, tau,
 #' @seealso \code{\link{penalized_glm_fit}}, \code{\link{mstep_arch_pars}},
 #'   \code{\link{estep_post_probs}}
 #' @export
-mstep_species_pars <- function(Y, X, par.list, tau,
-                               family, psi2 = 0, maxit = 1) {
+mstep_species_pars <- function(
+    Y, X, par.list, tau,
+    family, psi2 = 0, maxit = 1
+) {
 
-  beta0 = par.list$beta0; B = par.list$B; pi = par.list$pi; U = par.list$U; Lambda = par.list$Lambda; phi = par.list$phi
-  n <- nrow(Y); s <- ncol(Y); g <- nrow(B); d <- ncol(U)
+  beta0  <- par.list$beta0
+  B      <- par.list$B
+  U      <- par.list$U
+  Lambda <- par.list$Lambda
+  phi    <- par.list$phi
 
-  beta0_new <- beta0
+  n <- nrow(Y)
+  s <- ncol(Y)
+  g <- nrow(B)
+  d <- ncol(U)
+
+  ## ---- Shared quantities (once per ECM iteration) ----
+  XB <- X %*% t(B)          # n × g
+  XU <- cbind(1, U)         # n × (d+1)
+
+  ## ---- Allocate stacking buffers ONCE ----
+  ng <- n * g
+  y_stack       <- numeric(ng)
+  offset_stack  <- numeric(ng)
+  weights_stack <- numeric(ng)
+  X_stack       <- matrix(0, nrow = ng, ncol = d + 1)
+
+  beta0_new  <- beta0
   Lambda_new <- Lambda
-  phi_new <- phi
+  phi_new    <- phi
 
-  for (j in 1:s) {
+  ## ---- Species loop (parallelisable) ----
+  for (j in seq_len(s)) {
 
-    y_stack <- rep(NA, n * g)
-    X_stack <- matrix(0, nrow = n * g, ncol = 1 + d)
-    weights_stack <- rep(0, n * g)
-    offset_stack <- rep(0, n * g)
+    yj <- Y[, j]
 
-    for (k in 1:g) {
+    for (k in seq_len(g)) {
       idx <- ((k - 1) * n + 1):(k * n)
-      y_stack[idx] <- Y[, j]
-      X_stack[idx, 1] <- 1
-      X_stack[idx, -1] <- U
-      offset_stack[idx] <- as.vector(X %*% B[k, ])
+
+      y_stack[idx]       <- yj
+      X_stack[idx, ]     <- XU
+      offset_stack[idx]  <- XB[, k]
       weights_stack[idx] <- tau[j, k]
     }
 
-    penalty_weights <- c(0, rep(1, d))
-
     fit <- penalized_glm_fit(
-      X = X_stack,
-      y = y_stack,
+      X       = X_stack,
+      y       = y_stack,
       weights = weights_stack,
-      offset = offset_stack,
-      penalty_weights = penalty_weights,
-      lambda = psi2,
-      family = family,
-      maxit = maxit,
-      start = c(beta0_new[j], Lambda_new[j, ])
+      offset  = offset_stack,
+      penalty_weights = c(0, rep(1, d)),
+      lambda  = psi2,
+      family  = family,
+      start   = c(beta0_new[j], Lambda_new[j, ]),
+      maxit   = maxit
     )
 
-    if (is.null(fit$coefficients) || any(is.na(fit$coefficients))) {
-      warning(sprintf("penalized_glm_fit failed for speciese %d; leaving beta0[j] and Lambda[j, ] unchanged", k))
-    } else {
-      coef_j <- fit$coefficients
-      beta0_new[j] <- coef_j[1]
-      Lambda_new[j, ] <- coef_j[-1]
+    if (all(is.finite(fit$coefficients))) {
+      beta0_new[j]    <- fit$coefficients[1]
+      Lambda_new[j, ] <- fit$coefficients[-1]
     }
 
     if (family$family == "gaussian") {
-      mu <- fit$mu
-      phi_new[j] <- sum(weights_stack * (y_stack - mu)^2) / sum(weights_stack)
+      phi_new[j] <- sum(weights_stack * (y_stack - fit$mu)^2) /
+        sum(weights_stack)
     }
   }
 
   list(beta0 = beta0_new, Lambda = Lambda_new, phi = phi_new)
 }
+
 
 #' M-step: update site scores (latent site covariates) for CSAM
 #'
@@ -672,29 +715,48 @@ mstep_species_pars <- function(Y, X, par.list, tau,
 mstep_site_scores <- function(Y, X, par.list, tau,
                               family, psi1 = 0, maxit = 1) {
 
-  beta0 = par.list$beta0; B = par.list$B; pi = par.list$pi; U = par.list$U; Lambda = par.list$Lambda; phi = par.list$phi
-  n <- nrow(Y); s <- ncol(Y); g <- nrow(B); d <- ncol(Lambda)
+  beta0  <- par.list$beta0
+  B      <- par.list$B
+  U      <- par.list$U
+  Lambda <- par.list$Lambda
+
+  n <- nrow(Y)
+  s <- ncol(Y)
+  g <- nrow(B)
+  d <- ncol(Lambda)
+
+  ## ---- Shared linear predictor (fixed in this CM-step) ----
+  XB <- X %*% t(B)   # n × g
+
   U_new <- U
 
-  for (i in 1:n) {
+  sg <- s * g
 
-    y_stack <- rep(NA, s * g)
-    X_stack <- matrix(0, nrow = s * g, ncol = d)
-    weights_stack <- rep(0, s * g)
-    offset_stack <- rep(0, s * g)
+  ## ---- Allocate stacks ONCE ----
+  y_stack       <- numeric(sg)
+  offset_stack  <- numeric(sg)
+  weights_stack <- numeric(sg)
+  X_stack       <- matrix(0, nrow = sg, ncol = d)
 
-    row <- 1
-    for (j in 1:s) {
-      for (k in 1:g) {
-        y_stack[row] <- Y[i, j]
-        X_stack[row, ] <- Lambda[j, ]
-        offset_stack[row] <- beta0[j] + as.numeric(X[i, ] %*% B[k, ])
+  penalty_weights <- rep(1, d)
+
+  for (i in seq_len(n)) {
+
+    row <- 1L
+
+    ## ---- Fill stacks by species × archetype ----
+    for (j in seq_len(s)) {
+      lj <- Lambda[j, ]
+      bj <- beta0[j]
+
+      for (k in seq_len(g)) {
+        y_stack[row]       <- Y[i, j]
+        X_stack[row, ]     <- lj
+        offset_stack[row]  <- bj + XB[i, k]
         weights_stack[row] <- tau[j, k]
-        row <- row + 1
+        row <- row + 1L
       }
     }
-
-    penalty_weights <- rep(1, d)
 
     fit <- penalized_glm_fit(
       X = X_stack,
@@ -708,17 +770,20 @@ mstep_site_scores <- function(Y, X, par.list, tau,
       start = U_new[i, ]
     )
 
-    if (is.null(fit$coefficients) || any(is.na(fit$coefficients))) {
-      warning(sprintf("penalized_glm_fit failed for speciese %d; leaving beta0[j] and Lambda[j, ] unchanged", k))
-    } else {
-      # print(paste(i, "th site updated"))
+    if (!is.null(fit$coefficients) &&
+        all(is.finite(fit$coefficients))) {
       U_new[i, ] <- fit$coefficients
+    } else {
+      warning(sprintf(
+        "penalized_glm_fit failed for site %d; leaving U[i, ] unchanged",
+        i
+      ))
     }
-
   }
 
   U_new
 }
+
 
 #' E-step posterior probabilities for vanilla SAM (internal)
 #'
@@ -726,38 +791,54 @@ mstep_site_scores <- function(Y, X, par.list, tau,
 estep0_post_probs <- function(Y, X, par.list, family,
                              trunc.interval = FALSE) {
 
-  beta0 = par.list$beta0; B = par.list$B; pi = par.list$pi; phi = par.list$phi
-  n <- nrow(Y); s <- ncol(Y); g <- nrow(B)
+  beta0 <- par.list$beta0
+  B     <- par.list$B
+  pi    <- par.list$pi
+  phi   <- par.list$phi   # kept for API compatibility
 
-  loglik_mat <- matrix(NA, s, g)
+  n <- nrow(Y)
+  s <- ncol(Y)
+  g <- nrow(B)
 
-  for (j in 1:s) {
+  ## ---- Shared linear predictor ----
+  XB <- X %*% t(B)   # n × g
+
+  loglik_mat <- matrix(0, s, g)
+
+  ## ---- E-step: species-level loop (parallelisable) ----
+  for (j in seq_len(s)) {
+
     yj <- Y[, j]
+    eta_base <- beta0[j]
 
-    for (k in 1:g) {
-      eta <- beta0[j] + X %*% B[k, ]
+    for (k in seq_len(g)) {
+
+      eta <- eta_base + XB[, k]
       mu  <- family$linkinv(eta)
 
       dev <- family$dev.resids(yj, mu, wt = rep(1, n))
-      ll  <- -0.5 * family$aic(yj, rep(1, n), mu, rep(1, n), dev)
-
-      loglik_mat[j, k] <- sum(ll)
+      loglik_mat[j, k] <- -0.5 * sum(dev)
     }
   }
 
+  ## ---- Posterior normalisation ----
   logpost <- sweep(loglik_mat, 2, log(pi), "+")
-  tau <- exp(logpost - apply(logpost, 1, max))
-  tau <- tau / rowSums(tau)
+  row_max <- apply(logpost, 1, max)
+  post_unnorm <- exp(logpost - row_max)
+  tau <- post_unnorm / rowSums(post_unnorm)
 
+  ## ---- Optional truncation (unchanged) ----
   if (trunc.interval) {
     alpha <- (1 - 0.8 * g) / ((0.8 * 2 - g) - 1)
     tau <- apply(tau, 2, function(x) {
-      ((2 * alpha * x) - alpha + 1) / ((2 * alpha) - (alpha * g) + g)
+      ((2 * alpha * x) - alpha + 1) /
+        ((2 * alpha) - (alpha * g) + g)
     })
   }
 
   tau
 }
+
 
 #' M-step for vanilla SAM: archetype parameters (internal)
 #'
@@ -769,17 +850,20 @@ mstep0_arch_pars <- function(Y, X, par.list, tau,
   n <- nrow(Y); s <- ncol(Y); g <- nrow(B); p <- ncol(X)
   B_new <- B
 
-  for (k in 1:g) {
+  ## ---- Pre-build shared stacks ONCE ----
+  y_stack  <- as.vector(Y)                       # length n*s
+  X_stack  <- X[rep(seq_len(n), times = s), ]    # n*s × p
 
-    y_stack <- as.vector(Y)
-    X_stack <- do.call(rbind, replicate(s, X, simplify = FALSE))
+  ns <- n * s
+  offset_stack  <- numeric(ns)
+  weights_stack <- numeric(ns)
 
-    offset_stack <- rep(0, n * s)
-    weights_stack <- rep(0, n * s)
+  for (k in seq_len(g)) {
 
-    for (j in 1:s) {
+    ## ---- Fill species-wise blocks ----
+    for (j in seq_len(s)) {
       idx <- ((j - 1) * n + 1):(j * n)
-      offset_stack[idx] <- beta0[j]
+      offset_stack[idx]  <- beta0[j]
       weights_stack[idx] <- tau[j, k]
     }
 
@@ -811,18 +895,25 @@ mstep0_species_pars <- function(Y, X, par.list, tau,
   beta0_new <- beta0
   phi_new <- phi
 
-  for (j in 1:s) {
+  ## ---- Shared linear predictor (fixed in this CM-step) ----
+  XB <- X %*% t(B)   # n × g
 
-    y_stack <- rep(NA, n * g)
-    X_stack <- matrix(0, nrow = n * g, ncol = 1)
-    weights_stack <- rep(0, n * g)
-    offset_stack <- rep(0, n * g)
+  ng <- n * g
 
-    for (k in 1:g) {
+  ## ---- Allocate stacks ONCE ----
+  y_stack       <- numeric(ng)
+  offset_stack  <- numeric(ng)
+  weights_stack <- numeric(ng)
+  X_stack       <- matrix(1, nrow = ng, ncol = 1)  # intercept only
+
+  for (j in seq_len(s)) {
+
+    yj <- Y[, j]
+
+    for (k in seq_len(g)) {
       idx <- ((k - 1) * n + 1):(k * n)
-      y_stack[idx] <- Y[, j]
-      X_stack[idx, 1] <- 1
-      offset_stack[idx] <- as.vector(X %*% B[k, ])
+      y_stack[idx]       <- yj
+      offset_stack[idx]  <- XB[, k]
       weights_stack[idx] <- tau[j, k]
     }
 
@@ -847,7 +938,6 @@ mstep0_species_pars <- function(Y, X, par.list, tau,
 
   list(beta0 = beta0_new, phi = phi_new)
 }
-
 
 #' Calculate the complete-data expected score function (internal)
 #'
@@ -1294,28 +1384,41 @@ mzll <- function(Y, X, par.list, g = 3, d = 2, family = poisson(),
     stop("mismatch between factor scores, U, and specified d")
   }
 
-  ll <- 0
-  for (j in 1:s) {
-    yj <- Y[, j]
-    lambda_j <- Lambda[j, , drop = FALSE]
-    offset_common <- as.vector(U %*% t(lambda_j))
+  ## ---- Shared linear predictor components ----
+  XB <- X %*% t(B)          # n × g
+  UL <- U %*% t(Lambda)     # n × s
 
+  ll <- 0
+
+  ## ---- Species loop (parallelisable) ----
+  for (j in seq_len(s)) {
+
+    yj <- Y[, j]
+    eta_base <- beta0[j] + UL[, j]
     comp <- numeric(g)
-    for (k in 1:g) {
-      eta <- beta0[j] + X %*% B[k, ] + offset_common
+
+    for (k in seq_len(g)) {
+
+      eta <- eta_base + XB[, k]
       mu  <- family$linkinv(eta)
-      dev <- family$dev.resids(y = yj, mu = mu, wt = rep(1, n))
-      ll_comp <- -0.5 * family$aic(yj, rep(1, n), mu, rep(1, n), dev)
-      comp[k] <- sum(ll_comp) + log(pi[k])
+
+      dev <- family$dev.resids(yj, mu, wt = rep(1, n))
+      comp[k] <- -0.5 * sum(dev) + log(pi[k])
     }
+
+    ## numerically stable log-sum-exp
     m <- max(comp)
     ll <- ll + m + log(sum(exp(comp - m)))
   }
 
-  pll <- ll - 0.5 * psi1 * sum(U^2) - 0.5 * psi2 * sum(Lambda^2)
+  ## ---- Penalised log-likelihood ----
+  pll <- ll -
+    0.5 * psi1 * sum(U^2) -
+    0.5 * psi2 * sum(Lambda^2)
 
   pll
 }
+
 
 #' Calculate the fitted values of a CSAM/SAM, \eqn{\mu_{ijk}}, and compute the posterior predictive mean (internal)
 #'
@@ -1405,39 +1508,28 @@ tau_from_tmb_fit <- function(Y, X, par.list, family) {
   phi    <- par.list$phi
   g      <- nrow(B)
 
-  # linear predictor pieces
-  XB <- X %*% t(B)              # n × g
-  # factor-analytic term (correlated CSAM)
-  if (!is.null(U) && !is.null(Lambda)) {
-    UL <- U %*% t(Lambda)   # n × s
-  } else {
-    UL <- matrix(0, n, s)   # standard SAM
-  }
-
-  # eta: n × s × g
-  eta <- array(0, dim = c(n, s, g))
-  for (k in 1:g) {
-    eta[,,k] <- sweep(UL, 2, beta0, "+") + XB[,k]
-  }
-
-  mu <- family$linkinv(eta)     # n × s × g
-
-  # log-likelihood per species j, archetype k
   loglik <- matrix(0, s, g)
-  for (k in 1:g) {
-    for (j in 1:s) {
-      yj  <- Y[, j]
-      muj <- mu[, j, k]
-      dev <- family$dev.resids(yj, muj, wt = rep(1, n))
-      ll  <- -0.5 * family$aic(yj, rep(1, n), muj, rep(1, n), dev)
-      loglik[j, k] <- sum(ll)
+
+  ## ---- Species-level E-step (parallelisable) ----
+  for (j in seq_len(s)) {
+
+    yj <- Y[, j]
+    eta_base <- beta0[j] + UL[, j]
+
+    for (k in seq_len(g)) {
+
+      eta <- eta_base + XB[, k]
+      mu  <- family$linkinv(eta)
+
+      dev <- family$dev.resids(yj, mu, wt = rep(1, n))
+      loglik[j, k] <- -0.5 * sum(dev)
     }
   }
 
-  # add log pi and normalise
-  log_post <- sweep(loglik, 2, log(pi), "+")
-  log_post <- log_post - apply(log_post, 1, max)  # stabilise
-  post_unnorm <- exp(log_post)
+  ## ---- Add log pi and normalise ----
+  logpost <- sweep(loglik, 2, log(pi), "+")
+  row_max <- apply(logpost, 1, max)
+  post_unnorm <- exp(logpost - row_max)
   tau <- post_unnorm / rowSums(post_unnorm)
 
   tau

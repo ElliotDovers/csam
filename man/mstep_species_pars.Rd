@@ -23,7 +23,7 @@ with dimension \eqn{s \times g} (rows = species, columns = archetypes).}
 species loadings (ridge penalty). Default \code{0} (no penalty).}
 
 \item{maxit}{integer maximum number of IRLS iterations passed to the
-internal \code{\link{penalized_glm_fit}} call (default \code{1}).}
+internal \code{\link{penalised_glm_fit}} call (default \code{1}).}
 
 \item{B}{numeric matrix of archetype regression coefficients with \eqn{g}
 rows and \eqn{p} columns (row \code{k} = coefficients for archetype \code{k}).}
@@ -54,7 +54,7 @@ A named list with components:
 Perform the conditional M-step that updates species-specific parameters in
 the Correlated Species Archetype Model (CSAM). For each species \(j\) the
 function stacks observations across archetypes and fits a weighted,
-penalized GLM to update the species intercept \eqn{\beta_{0j}} and species
+penalised GLM to update the species intercept \eqn{\beta_{0j}} and species
 loadings \eqn{\lambda_j} (row \code{j} of \code{Lambda}). The posterior
 species-to-archetype probabilities \eqn{\tau_{jk}} are used as observation
 weights and the archetype fixed-effects contribution is included as an
@@ -67,9 +67,9 @@ archetype. The stacked design has an intercept column and the site latent
 variables \code{U} as covariates; the archetype contribution
 \eqn{X B_k}, is included as an observation-level offset for rows
 corresponding to archetype \code{k}. Observation weights are given by
-\eqn{\tau_{jk}}. A penalized GLM is fitted via \code{\link{penalized_glm_fit}}
+\eqn{\tau_{jk}}. A penalised GLM is fitted via \code{\link{penalised_glm_fit}}
 with penalty weights \code{c(0, rep(1, d))} so that the intercept is
-unpenalized while the loadings receive a ridge penalty scaled by
+unpenalised while the loadings receive a ridge penalty scaled by
 \code{psi2}. When \code{family$family == "gaussian"} the species-specific
 dispersion \eqn{\phi_j} is re-estimated as the weighted mean squared error
 using the IRLS weights.
@@ -94,6 +94,6 @@ str(res)
 
 }
 \seealso{
-\code{\link{penalized_glm_fit}}, \code{\link{mstep_arch_pars}},
+\code{\link{penalised_glm_fit}}, \code{\link{mstep_arch_pars}},
 \code{\link{estep_post_probs}}
 }

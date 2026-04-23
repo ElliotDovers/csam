@@ -62,7 +62,7 @@ coefficients.}
 \item{phi}{Length-\(s\) vector of species-specific dispersion parameters
 (for Gaussian family).}
 \item{tau}{not available}
-\item{penalized_loglik}{Final penalized log-likelihood value.}
+\item{penalised_loglik}{Final penalised log-likelihood value.}
 \item{iterations}{Number of ECM iterations performed.}
 \item{family}{The GLM family used.}
 }
@@ -80,7 +80,7 @@ from a common exponential family.
 
 Estimation proceeds via a gradient-based optiimiser with:
 
-The penalized log-likelihood is
+The penalised log-likelihood is
 \deqn{
   \ell_{\text{pen}}(\theta; Y, X)
   = \ell(\theta; Y, X)

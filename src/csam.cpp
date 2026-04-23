@@ -1,6 +1,7 @@
 // csam.cpp
+#define TMBAD_FRAMEWORK
 #include <TMB.hpp>
-#include "init.h" // for R CMD check: R_registerRoutines, R_useDynamicSymbols
+//#include "init.h" // for R CMD check: R_registerRoutines, R_useDynamicSymbols
 #include "csam_utils.h"
 
 template<class Type>

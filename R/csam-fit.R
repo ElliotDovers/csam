@@ -11,7 +11,7 @@
 #' modeled as a finite mixture of regression models with component densities
 #' from a common exponential family.
 #'
-#' The penalized log-likelihood is
+#' The penalised log-likelihood is
 #' \deqn{
 #'   \ell_{\text{pen}}(\theta; Y, X)
 #'   = \ell(\theta; Y, X)
@@ -28,7 +28,7 @@
 #'   \item three conditional M-steps updating archetype coefficients
 #'     \eqn{\boldsymbol{B}}, species-specific parameters
 #'     \eqn{(\boldsymbol{\beta}_0, \boldsymbol{\Lambda}, \boldsymbol{\phi})},
-#'     and site scores \eqn{\mathbf{U}}, respectively, using penalized IRLS.
+#'     and site scores \eqn{\mathbf{U}}, respectively, using penalised IRLS.
 #' }
 #'
 #' @param Y A numeric matrix of responses of dimension \eqn{n \times s},
@@ -43,8 +43,8 @@
 #' @param psi2 Non-negative numeric; ridge penalty parameter on the loadings
 #'   matrix \eqn{\boldsymbol{\Lambda}}.
 #' @param max_iter Integer; maximum number of ECM iterations.
-#' @param tol Numeric; convergence tolerance on the penalized log-likelihood.
-#' @param verbose Logical; if `TRUE`, prints the penalized log-likelihood at
+#' @param tol Numeric; convergence tolerance on the penalised log-likelihood.
+#' @param verbose Logical; if `TRUE`, prints the penalised log-likelihood at
 #'   each iteration.
 #' @param start Optional list of initial values with elements
 #'   `beta0`, `B`, `pi`, `U`, `Lambda`, `phi`. Any missing elements are
@@ -70,7 +70,7 @@
 #'     (for Gaussian family).}
 #'   \item{tau}{\eqn{s \times g} matrix of posterior species–archetype
 #'     memberships.}
-#'   \item{penalized_loglik}{Final penalized log-likelihood value.}
+#'   \item{penalised_loglik}{Final penalised log-likelihood value.}
 #'   \item{iterations}{Number of ECM iterations performed.}
 #'   \item{family}{The GLM family used.}
 #'   \item{trace}{If `trace = TRUE`, a list containing parameter and
@@ -92,8 +92,9 @@ csam <- function(Y, X, g = 3, d = 2, family = poisson(),
                  psi1 = 1, psi2 = 1, max_iter = 100, tol = 1e-6,
                  verbose = TRUE, start = NULL,
                  maxit_step1 = 5, maxit_step2 = 5, maxit_step3 = 5,
-                 trace = TRUE) {
+                 trace = TRUE, backend = c("C++", "R")) {
 
+  backend <- match.arg(backend)
   n <- nrow(Y); s <- ncol(Y); p <- ncol(X)
 
   # check if the supplied starting parameters are a fitted csam object and correct as needed
@@ -192,13 +193,13 @@ csam <- function(Y, X, g = 3, d = 2, family = poisson(),
                          family = family, maxit = maxit_step1)
 
     sp <- mstep_species_pars(Y = Y, X = X, par.list = par.list, tau = tau,
-                             family = family, psi2 = psi2, maxit = maxit_step2)
+                             family = family, psi2 = psi2, maxit = maxit_step2, backend = backend)
     par.list$beta0  <- sp$beta0
     par.list$Lambda <- sp$Lambda
     par.list$phi    <- sp$phi
 
     par.list$U <- mstep_site_scores(Y = Y, X = X, par.list = par.list, tau = tau,
-                           family = family, psi1 = psi1, maxit = maxit_step3)
+                           family = family, psi1 = psi1, maxit = maxit_step3, backend = backend)
 
     par.list$pi <- colMeans(tau)
     par.list$pi <- par.list$pi / sum(par.list$pi)
@@ -208,19 +209,19 @@ csam <- function(Y, X, g = 3, d = 2, family = poisson(),
                  g = g, d = d, family = family, psi1 = psi1, psi2 = psi2)
 
     if (!is.finite(pll)) {
-      warning("penalized log-likelihood became non-finite; stopping")
+      warning("penalised log-likelihood became non-finite; stopping")
       conv = NA
       break
     }
 
     # if (pll - prev_pll < -1e-12) {
-    #   warning("penalized log-likelihood no longer monotonic increasing; stopping")
+    #   warning("penalised log-likelihood no longer monotonic increasing; stopping")
     #   conv = NA
     #   break
     # }
 
     if (verbose) {
-      cat(sprintf("Iter %3d: penalized log-lik = %.6f\n", iter, pll))
+      cat(sprintf("Iter %3d: penalised log-lik = %.6f\n", iter, pll))
     }
 
     if (trace) {
@@ -269,7 +270,7 @@ csam <- function(Y, X, g = 3, d = 2, family = poisson(),
     phi = par.list$phi,
     tau = tau,
     par.list = par.list,
-    penalized_loglik = pll,
+    penalised_loglik = pll,
     iterations = iter,
     family = family,
     Y = Y,
@@ -320,8 +321,8 @@ csam <- function(Y, X, g = 3, d = 2, family = poisson(),
 #' @param family A GLM family object (e.g. [stats::poisson()], [stats::binomial()],
 #'   [stats::gaussian()]) specifying the exponential family and link.
 #' @param max_iter Integer; maximum number of ECM iterations.
-#' @param tol Numeric; convergence tolerance on the penalized log-likelihood.
-#' @param verbose Logical; if `TRUE`, prints the penalized log-likelihood at
+#' @param tol Numeric; convergence tolerance on the penalised log-likelihood.
+#' @param verbose Logical; if `TRUE`, prints the penalised log-likelihood at
 #'   each iteration.
 #' @param start Optional list of initial values with elements
 #'   `beta0`, `B`, `pi`, `phi`. Any missing elements are
@@ -343,7 +344,7 @@ csam <- function(Y, X, g = 3, d = 2, family = poisson(),
 #'     (for Gaussian family).}
 #'   \item{tau}{\eqn{s \times g} matrix of posterior species–archetype
 #'     memberships.}
-#'   \item{penalized_loglik}{Final log-likelihood value. NOTE this is labelled "penalized" only for software compatibility with downstream functions for `csam`}
+#'   \item{penalised_loglik}{Final log-likelihood value. NOTE this is labelled "penalised" only for software compatibility with downstream functions for `csam`}
 #'   \item{iterations}{Number of ECM iterations performed.}
 #'   \item{family}{The GLM family used.}
 #'   \item{trace}{If `trace = TRUE`, a list containing parameter and
@@ -526,7 +527,7 @@ sam <- function(Y, X, g = 3, family = poisson(),
     phi = par.list$phi,
     tau = tau,
     par.list = par.list,
-    penalized_loglik = pll,
+    penalised_loglik = pll,
     iterations = iter,
     family = family,
     Y = Y,
@@ -556,7 +557,7 @@ sam <- function(Y, X, g = 3, family = poisson(),
 #'
 #' Estimation proceeds via a gradient-based optiimiser with:
 #'
-#' The penalized log-likelihood is
+#' The penalised log-likelihood is
 #' \deqn{
 #'   \ell_{\text{pen}}(\theta; Y, X)
 #'   = \ell(\theta; Y, X)
@@ -598,7 +599,7 @@ sam <- function(Y, X, g = 3, family = poisson(),
 #'   \item{phi}{Length-\(s\) vector of species-specific dispersion parameters
 #'     (for Gaussian family).}
 #'   \item{tau}{not available}
-#'   \item{penalized_loglik}{Final penalized log-likelihood value.}
+#'   \item{penalised_loglik}{Final penalised log-likelihood value.}
 #'   \item{iterations}{Number of ECM iterations performed.}
 #'   \item{family}{The GLM family used.}
 #' }
@@ -696,7 +697,10 @@ csam_tmb <- function(Y, X, g = 3, d = 2, family = poisson(),
     X =  X,
     psi1 = 1,
     psi2 = 1,
-    family = 1,  # 0=Poisson, 1=Binomial, 2=Gaussian,...
+    family = switch(family$family,
+                    poisson = 0,
+                    binomial = 1,
+                    gaussian = 2),  # 0=Poisson, 1=Binomial, 2=Gaussian,...
     lik_type = as.numeric(U.random) # 0 = penalised, 1 = marginalised
   )
 
@@ -759,8 +763,8 @@ csam_tmb <- function(Y, X, g = 3, d = 2, family = poisson(),
   out = par.list
   out$tau = tau_from_tmb_fit(Y, X, par.list, family)
   out$par.list = par.list
-  out$penalized_loglik = if (U.random) {NA} else {-opt$objective}
-  out$marginalized_loglik = if (U.random) {-opt$objective} else {NA}
+  out$penalised_loglik = if (U.random) {NA} else {-opt$objective}
+  out$marginalised_loglik = if (U.random) {-opt$objective} else {NA}
   out$iterations = opt$iterations
   out$family = family
   out$Y = Y

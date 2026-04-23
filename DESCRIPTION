@@ -13,7 +13,8 @@ Description: Fits correlated species archetype models (CSAMs) via an ECM algorit
     the factor scores and loadings.
 Depends: R (>= 4.0.0)
 Imports:
-    TMB,
+    TMB (>= 1.9.0),
+    Rcpp,
     stats,
     DHARMa,
     grDevices,
@@ -22,7 +23,8 @@ Imports:
 RdMacros:
     Rdpack
 LinkingTo:
-    TMB,
+    TMB (>= 1.9.0),
+    Rcpp,
     RcppEigen
 Suggests:
     corrplot,

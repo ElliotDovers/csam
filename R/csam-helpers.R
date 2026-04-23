@@ -1,6 +1,108 @@
-#' Fit a penalized generalized linear model by penalized IRLS
+#' Fit a penalised generalised linear model by penalised IRLS
 #'
-#' Fit a generalized linear model with a quadratic penalty on coefficients
+#' Fit a generalised linear model with a quadratic penalty on coefficients
+#' using an iteratively reweighted least squares (IRLS) approach. The penalty
+#' is specified via a diagonal penalty weight vector and a scalar tuning
+#' parameter \code{lambda}; the effective penalty matrix is
+#' \eqn{\sqrt{\lambda}\,P} where \code{P} = diag(\code{penalty_weights}).
+#'
+#' @param X **matrix** of predictors with \eqn{n} rows (observations) and
+#'   \eqn{p} columns (features).
+#' @param y **numeric** response vector of length \eqn{n}.
+#' @param weights **numeric** optional observation weights of length \eqn{n}.
+#'   Defaults to \code{rep(1, n)}.
+#' @param offset **numeric** optional offset vector of length \eqn{n}.
+#'   Defaults to \code{rep(0, n)}.
+#' @param penalty_weights **numeric** nonnegative vector of length \eqn{p}
+#'   giving diagonal entries of the penalty matrix \code{P}. Defaults to
+#'   \code{rep(0, p)} (no penalty).
+#' @param lambda **numeric** nonnegative scalar that scales the penalty matrix.
+#'   Defaults to \code{0} (no penalty).
+#' @param family a \pkg{stats}-style family object (for example
+#'   \code{gaussian()}, \code{binomial()}, \code{poisson()}). The function
+#'   uses \code{family$linkinv}, \code{family$mu.eta} and
+#'   \code{family$variance}. Default is \code{gaussian()}.
+#' @param start **numeric** optional starting values for the coefficients of
+#'   length \eqn{p}. If \code{NULL} (default) coefficients are initialized to
+#'   zero. A length mismatch raises an error.
+#' @param maxit **integer** maximum number of IRLS iterations. Default is
+#'   \code{50}.
+#' @param tol **numeric** convergence tolerance on the maximum absolute change
+#'   in coefficients between iterations. Default is \code{1e-6}.
+#' @param backend **character** one of \code{"C++"} or \code{"R"} indicating the framework in which the P-IRLS scheme is executed.
+#'   Default is \code{"C++"} which is more efficient, \code{"R"} is only retained for legacy and checking.
+#'
+#' @return A \code{list} with components:
+#' \describe{
+#'   \item{\code{coefficients}}{numeric vector of length \eqn{p} with fitted
+#'     regression coefficients.}
+#'   \item{\code{converged}}{logical indicating whether the algorithm converged.}
+#'   \item{\code{iterations}}{numeric indicating the number of iterations used.}
+#' }
+#'
+#' @details
+#' The algorithm performs P-IRLS where, at each iteration, a weighted least
+#' squares problem with augmented rows is solved:
+#' \preformatted{
+#'   A = rbind(sqrt(W) * X, sqrt(lambda) * P)
+#'   b = c(sqrt(W) * z, rep(0, p))
+#' }
+#' where \code{W} are the IRLS weights and \code{z} is the working response.
+#' The penalty matrix \code{P} is diagonal with entries given by
+#' \code{penalty_weights}. When \code{lambda == 0} or all
+#' \code{penalty_weights == 0} the fit reduces to an unpenalised IRLS fit.
+#'
+#' If \code{start} is provided it must have length equal to the number of
+#' columns of \code{X}; otherwise an error is raised.
+#'
+#' @examples
+#' ## Gaussian example
+#' set.seed(1)
+#' n <- 100; p <- 5
+#' X <- matrix(rnorm(n * p), n, p)
+#' beta_true <- c(1, -0.5, 0, 0, 0)
+#' y <- X %*% beta_true + rnorm(n)
+#' fit <- penalised_glm_fit(X, y, lambda = 1, penalty_weights = c(0, 1, 1, 1, 1))
+#' print(fit$coefficients)
+#'
+#' ## Binomial example (logit link)
+#' set.seed(2)
+#' n <- 200; p <- 3
+#' X <- matrix(rnorm(n * p), n, p)
+#' beta_true <- c(0.5, -1, 0.2)
+#' eta <- X %*% beta_true
+#' p_true <- 1 / (1 + exp(-eta))
+#' y_bin <- rbinom(n, size = 1, prob = p_true)
+#' fit_bin <- penalised_glm_fit_R(X, y_bin, family = binomial(), lambda = 0.5,
+#'                              penalty_weights = rep(1, p))
+#' head(fit_bin$mu)
+#'
+#' @seealso \code{\link[stats]{glm}}, \code{\link[stats]{family}}
+#' @export
+penalised_glm_fit <- function(X, y, weights = NULL, offset = NULL,
+                              penalty_weights = NULL, lambda = 0,
+                              family = gaussian(), start = NULL,
+                              maxit = 50, tol = 1e-6, verbose = FALSE, backend = c("C++", "R")) {
+  backend <- match.arg(backend)
+  if (backend == "R") {
+    out <- penalised_glm_fit_R(X = X, y = y, weights = weights, offset = offset,
+                        penalty_weights = penalty_weights, lambda = lambda,
+                        family = family, start = start,
+                        maxit = maxit, tol = tol, verbose = verbose)
+  }
+  else {
+    out <- penalised_glm_fit_C(X = X, y = y, weights = weights, offset = offset,
+                               penalty_weights = penalty_weights, lambda = lambda,
+                               family = family, start = start,
+                               maxit = maxit, tol = tol)
+  }
+
+  return(out)
+}
+
+#' Fit a penalised generalised linear model by penalised IRLS on R
+#'
+#' Fit a generalised linear model with a quadratic penalty on coefficients
 #' using an iteratively reweighted least squares (IRLS) approach. The penalty
 #' is specified via a diagonal penalty weight vector and a scalar tuning
 #' parameter \code{lambda}; the effective penalty matrix is
@@ -51,7 +153,7 @@
 #' where \code{W} are the IRLS weights and \code{z} is the working response.
 #' The penalty matrix \code{P} is diagonal with entries given by
 #' \code{penalty_weights}. When \code{lambda == 0} or all
-#' \code{penalty_weights == 0} the fit reduces to an unpenalized IRLS fit.
+#' \code{penalty_weights == 0} the fit reduces to an unpenalised IRLS fit.
 #'
 #' If \code{start} is provided it must have length equal to the number of
 #' columns of \code{X}; otherwise an error is raised.
@@ -63,7 +165,7 @@
 #' X <- matrix(rnorm(n * p), n, p)
 #' beta_true <- c(1, -0.5, 0, 0, 0)
 #' y <- X %*% beta_true + rnorm(n)
-#' fit <- penalized_glm_fit(X, y, lambda = 1, penalty_weights = c(0, 1, 1, 1, 1))
+#' fit <- penalised_glm_fit(X, y, lambda = 1, penalty_weights = c(0, 1, 1, 1, 1))
 #' print(fit$coefficients)
 #'
 #' ## Binomial example (logit link)
@@ -74,16 +176,16 @@
 #' eta <- X %*% beta_true
 #' p_true <- 1 / (1 + exp(-eta))
 #' y_bin <- rbinom(n, size = 1, prob = p_true)
-#' fit_bin <- penalized_glm_fit(X, y_bin, family = binomial(), lambda = 0.5,
+#' fit_bin <- penalised_glm_fit_R(X, y_bin, family = binomial(), lambda = 0.5,
 #'                              penalty_weights = rep(1, p))
 #' head(fit_bin$mu)
 #'
 #' @seealso \code{\link[stats]{glm}}, \code{\link[stats]{family}}
 #' @export
-penalized_glm_fit <- function(X, y, weights = NULL, offset = NULL,
-                              penalty_weights = NULL, lambda = 0,
-                              family = gaussian(), start = NULL,
-                              maxit = 50, tol = 1e-6, verbose = FALSE) {
+penalised_glm_fit_R <- function(X, y, weights = NULL, offset = NULL,
+                                penalty_weights = NULL, lambda = 0,
+                                family = gaussian(), start = NULL,
+                                maxit = 50, tol = 1e-6, verbose = FALSE) {
 
   n <- nrow(X)
   p <- ncol(X)
@@ -183,7 +285,7 @@ penalized_glm_fit <- function(X, y, weights = NULL, offset = NULL,
         qr_reg2 <- qr(reg_mat)
         beta_new <- qr.coef(qr_reg2, XtWz)
         if (any(is.na(beta_new))) {
-          warning("unable to obtain stable solution for penalized GLM; returning previous beta")
+          warning("unable to obtain stable solution for penalised GLM; returning previous beta")
           beta_new <- beta
           break
         }
@@ -212,10 +314,135 @@ penalized_glm_fit <- function(X, y, weights = NULL, offset = NULL,
   }
 
   list(coefficients = as.numeric(beta),
-       eta = as.numeric(eta),
-       mu = as.numeric(mu),
+       # eta = as.numeric(eta),
+       # mu = as.numeric(mu),
        converged = converged,
-       iter = iter_used)
+       iterations = iter_used)
+}
+
+#' Fit a penalised generalised linear model by penalised IRLS in C++
+#'
+#' Fit a generalised linear model with a quadratic penalty on coefficients
+#' using an iteratively reweighted least squares (IRLS) approach. The penalty
+#' is specified via a diagonal penalty weight vector and a scalar tuning
+#' parameter \code{lambda}; the effective penalty matrix is
+#' \eqn{\sqrt{\lambda}\,P} where \code{P} = diag(\code{penalty_weights}).
+#'
+#' @param X **matrix** of predictors with \eqn{n} rows (observations) and
+#'   \eqn{p} columns (features).
+#' @param y **numeric** response vector of length \eqn{n}.
+#' @param weights **numeric** optional observation weights of length \eqn{n}.
+#'   Defaults to \code{rep(1, n)}.
+#' @param offset **numeric** optional offset vector of length \eqn{n}.
+#'   Defaults to \code{rep(0, n)}.
+#' @param penalty_weights **numeric** nonnegative vector of length \eqn{p}
+#'   giving diagonal entries of the penalty matrix \code{P}. Defaults to
+#'   \code{rep(0, p)} (no penalty).
+#' @param lambda **numeric** nonnegative scalar that scales the penalty matrix.
+#'   Defaults to \code{0} (no penalty).
+#' @param family a \pkg{stats}-style family object (for example
+#'   \code{gaussian()}, \code{binomial()}, \code{poisson()}). The function
+#'   uses \code{family$linkinv}, \code{family$mu.eta} and
+#'   \code{family$variance}. Default is \code{gaussian()}.
+#' @param start **numeric** optional starting values for the coefficients of
+#'   length \eqn{p}. If \code{NULL} (default) coefficients are initialised to
+#'   zero. A length mismatch raises an error.
+#' @param maxit **integer** maximum number of IRLS iterations. Default is
+#'   \code{50}.
+#' @param tol **numeric** convergence tolerance on the maximum absolute change
+#'   in coefficients between iterations. Default is \code{1e-6}.
+#' @param verbose **logical** if \code{TRUE} prints iteration progress.
+#'   Default is \code{FALSE}.
+#'
+#' @return A \code{list} with components:
+#' \describe{
+#'   \item{\code{coefficients}}{numeric vector of length \eqn{p} with fitted
+#'     regression coefficients.}
+#'   \item{\code{eta}}{numeric vector of linear predictors \eqn{X \beta + offset}.}
+#'   \item{\code{mu}}{numeric vector of fitted means \eqn{g^{-1}(\eta)} where
+#'     \eqn{g^{-1}} is the family link inverse.}
+#' }
+#'
+#' @details
+#' The algorithm performs IRLS where, at each iteration, a weighted least
+#' squares problem with augmented rows is solved:
+#' \preformatted{
+#'   A = rbind(sqrt(W) * X, sqrt(lambda) * P)
+#'   b = c(sqrt(W) * z, rep(0, p))
+#' }
+#' where \code{W} are the IRLS weights and \code{z} is the working response.
+#' The penalty matrix \code{P} is diagonal with entries given by
+#' \code{penalty_weights}. When \code{lambda == 0} or all
+#' \code{penalty_weights == 0} the fit reduces to an unpenalised IRLS fit.
+#'
+#' If \code{start} is provided it must have length equal to the number of
+#' columns of \code{X}; otherwise an error is raised.
+#'
+#' @examples
+#' ## Gaussian example
+#' set.seed(1)
+#' n <- 100; p <- 5
+#' X <- matrix(rnorm(n * p), n, p)
+#' beta_true <- c(1, -0.5, 0, 0, 0)
+#' y <- X %*% beta_true + rnorm(n)
+#' fit <- penalised_glm_fit(X, y, lambda = 1, penalty_weights = c(0, 1, 1, 1, 1))
+#' print(fit$coefficients)
+#'
+#' ## Binomial example (logit link)
+#' set.seed(2)
+#' n <- 200; p <- 3
+#' X <- matrix(rnorm(n * p), n, p)
+#' beta_true <- c(0.5, -1, 0.2)
+#' eta <- X %*% beta_true
+#' p_true <- 1 / (1 + exp(-eta))
+#' y_bin <- rbinom(n, size = 1, prob = p_true)
+#' fit_bin <- penalised_glm_fit(X, y_bin, family = binomial(), lambda = 0.5,
+#'                              penalty_weights = rep(1, p))
+#' head(fit_bin$mu)
+#'
+#' @seealso \code{\link[stats]{glm}}, \code{\link[stats]{family}}
+#' @export
+penalised_glm_fit_C <- function(X, y, weights = NULL, offset = NULL,
+                              penalty_weights = NULL, lambda = 0,
+                              family = gaussian(), start = NULL,
+                              maxit = 50, tol = 1e-6
+) {
+
+  n <- nrow(X)
+  p <- ncol(X)
+
+  if (is.null(weights)) weights <- rep(1, n)
+  if (is.null(offset)) offset <- rep(0, n)
+  if (is.null(penalty_weights)) penalty_weights <- rep(0, p)
+  if (length(penalty_weights) != p) stop("penalty_weights must have length p")
+
+  if (is.null(start)) {
+    start <- rep(0, p)
+  } else {
+    if (length(start) == p) {
+      start <- as.numeric(start)
+    } else {
+      stop("incorrect length of starting values")
+    }
+  }
+
+  family = switch(family$family,
+                  poisson = 0,
+                  binomial = 1,
+                  gaussian = 2)
+
+  res <- .Call(
+    "penalised_glm_irls_cpp",
+    X, y, weights, offset,
+    penalty_weights, lambda, start,
+    family, maxit, tol
+  )
+
+  list(
+    coefficients = res$coefficients,
+    converged = res$converged,
+    iterations = res$iterations
+  )
 }
 
 #' E-step: posterior probabilities for Correlated Species Archetype Models (CSAM)
@@ -495,7 +722,7 @@ mstep_arch_pars <- function(Y, X, par.list, tau,
 #' Perform the conditional M-step that updates species-specific parameters in
 #' the Correlated Species Archetype Model (CSAM). For each species \(j\) the
 #' function stacks observations across archetypes and fits a weighted,
-#' penalized GLM to update the species intercept \eqn{\beta_{0j}} and species
+#' penalised GLM to update the species intercept \eqn{\beta_{0j}} and species
 #' loadings \eqn{\lambda_j} (row \code{j} of \code{Lambda}). The posterior
 #' species-to-archetype probabilities \eqn{\tau_{jk}} are used as observation
 #' weights and the archetype fixed-effects contribution is included as an
@@ -523,7 +750,7 @@ mstep_arch_pars <- function(Y, X, par.list, tau,
 #' @param psi2 numeric nonnegative scalar penalty tuning parameter applied to
 #'   species loadings (ridge penalty). Default \code{0} (no penalty).
 #' @param maxit integer maximum number of IRLS iterations passed to the
-#'   internal \code{\link{penalized_glm_fit}} call (default \code{1}).
+#'   internal \code{\link{penalised_glm_fit}} call (default \code{1}).
 #'
 #' @return A named list with components:
 #' \describe{
@@ -539,9 +766,9 @@ mstep_arch_pars <- function(Y, X, par.list, tau,
 #' variables \code{U} as covariates; the archetype contribution
 #' \eqn{X B_k}, is included as an observation-level offset for rows
 #' corresponding to archetype \code{k}. Observation weights are given by
-#' \eqn{\tau_{jk}}. A penalized GLM is fitted via \code{\link{penalized_glm_fit}}
+#' \eqn{\tau_{jk}}. A penalised GLM is fitted via \code{\link{penalised_glm_fit}}
 #' with penalty weights \code{c(0, rep(1, d))} so that the intercept is
-#' unpenalized while the loadings receive a ridge penalty scaled by
+#' unpenalised while the loadings receive a ridge penalty scaled by
 #' \code{psi2}. When \code{family$family == "gaussian"} the species-specific
 #' dispersion \eqn{\phi_j} is re-estimated as the weighted mean squared error
 #' using the IRLS weights.
@@ -564,13 +791,14 @@ mstep_arch_pars <- function(Y, X, par.list, tau,
 #'                           pi, tau, family = gaussian(), psi2 = 0.1, maxit = 2)
 #' str(res)
 #'
-#' @seealso \code{\link{penalized_glm_fit}}, \code{\link{mstep_arch_pars}},
+#' @seealso \code{\link{penalised_glm_fit}}, \code{\link{mstep_arch_pars}},
 #'   \code{\link{estep_post_probs}}
 #' @export
 mstep_species_pars <- function(
     Y, X, par.list, tau,
-    family, psi2 = 0, maxit = 1
+    family, psi2 = 0, maxit = 1, backend = c("C++", "R")
 ) {
+  backend <- match.arg(backend)
 
   beta0  <- par.list$beta0
   B      <- par.list$B
@@ -612,7 +840,7 @@ mstep_species_pars <- function(
       weights_stack[idx] <- tau[j, k]
     }
 
-    fit <- penalized_glm_fit(
+    fit <- penalised_glm_fit(
       X       = X_stack,
       y       = y_stack,
       weights = weights_stack,
@@ -621,7 +849,8 @@ mstep_species_pars <- function(
       lambda  = psi2,
       family  = family,
       start   = c(beta0_new[j], Lambda_new[j, ]),
-      maxit   = maxit
+      maxit   = maxit,
+      backend = backend
     )
 
     if (all(is.finite(fit$coefficients))) {
@@ -643,7 +872,7 @@ mstep_species_pars <- function(
 #'
 #' Update site-level latent variables \code{U} (site scores) in the conditional
 #' M-step of the Correlated Species Archetype Model (CSAM). For each site the
-#' function stacks species-by-archetype observations and fits a penalized GLM
+#' function stacks species-by-archetype observations and fits a penalised GLM
 #' to update the site's latent coordinates. Species loadings \code{Lambda}
 #' serve as covariates in the per-site regression, archetype contributions
 #' \code{X %*% B[k, ]} enter as offsets, and posterior species-to-archetype
@@ -673,7 +902,7 @@ mstep_species_pars <- function(
 #' @param psi1 **numeric** nonnegative scalar penalty tuning parameter applied
 #'   to site scores (ridge penalty). Default \code{0} (no penalty).
 #' @param maxit **integer** maximum number of IRLS iterations passed to the
-#'   internal \code{\link{penalized_glm_fit}} call (default \code{1}).
+#'   internal \code{\link{penalised_glm_fit}} call (default \code{1}).
 #'
 #' @return A numeric matrix of the same dimension as \code{U} (\eqn{n \times d})
 #'   containing the updated site scores (row \code{i} = updated scores for site \code{i}).
@@ -685,7 +914,7 @@ mstep_species_pars <- function(
 #' \code{j} of \code{Lambda}) as covariates; the archetype contribution
 #' \eqn{X[i, ] B_k}, and species intercept \eqn{\beta_{0j}} are included as
 #' an observation-level offset. Observation weights are given by
-#' \eqn{\tau_{jk}}. A penalized GLM is fitted via \code{\link{penalized_glm_fit}}
+#' \eqn{\tau_{jk}}. A penalised GLM is fitted via \code{\link{penalised_glm_fit}}
 #' with penalty weights \code{rep(1, d)} so that all dimensions of the site
 #' score receive a ridge penalty scaled by \code{psi1}. The fitted
 #' coefficients replace the corresponding row of \code{U}.
@@ -708,12 +937,13 @@ mstep_species_pars <- function(
 #'                            family = gaussian(), psi1 = 0.1, maxit = 2)
 #' dim(U_upd)  # n x d
 #'
-#' @seealso \code{\link{penalized_glm_fit}}, \code{\link{mstep_arch_pars}},
+#' @seealso \code{\link{penalised_glm_fit}}, \code{\link{mstep_arch_pars}},
 #'   \code{\link{mstep_species_pars}}, \code{\link{estep_post_probs}}
-#' @keywords csam site mstep latent penalized
+#' @keywords csam site mstep latent penalised
 #' @export
 mstep_site_scores <- function(Y, X, par.list, tau,
-                              family, psi1 = 0, maxit = 1) {
+                              family, psi1 = 0, maxit = 1, backend = c("C++", "R")) {
+  backend <- match.arg(backend)
 
   beta0  <- par.list$beta0
   B      <- par.list$B
@@ -758,7 +988,7 @@ mstep_site_scores <- function(Y, X, par.list, tau,
       }
     }
 
-    fit <- penalized_glm_fit(
+    fit <- penalised_glm_fit(
       X = X_stack,
       y = y_stack,
       weights = weights_stack,
@@ -766,8 +996,9 @@ mstep_site_scores <- function(Y, X, par.list, tau,
       penalty_weights = penalty_weights,
       lambda = psi1,
       family = family,
+      start = U_new[i, ],
       maxit = maxit,
-      start = U_new[i, ]
+      backend = backend
     )
 
     if (!is.null(fit$coefficients) &&
@@ -775,7 +1006,7 @@ mstep_site_scores <- function(Y, X, par.list, tau,
       U_new[i, ] <- fit$coefficients
     } else {
       warning(sprintf(
-        "penalized_glm_fit failed for site %d; leaving U[i, ] unchanged",
+        "penalised_glm_fit failed for site %d; leaving U[i, ] unchanged",
         i
       ))
     }
@@ -1423,7 +1654,7 @@ mzll <- function(Y, X, par.list, g = 3, d = 2, family = poisson(),
 #' Calculate the fitted values of a CSAM/SAM, \eqn{\mu_{ijk}}, and compute the posterior predictive mean (internal)
 #'
 #' @keywords internal
-.fitted_csam_internal <- function(par.list, X, tau, family,
+fitted_csam_internal <- function(par.list, X, tau, family,
                            type = c("response", "link"),
                            archetype_specific = FALSE) {
 
@@ -1509,6 +1740,16 @@ tau_from_tmb_fit <- function(Y, X, par.list, family) {
   g      <- nrow(B)
 
   loglik <- matrix(0, s, g)
+
+  # --- linear predictor components ---
+  XB <- X %*% t(B)   # n × g
+
+  # factor-analytic term (correlated CSAM)
+  if (!is.null(U) && !is.null(Lambda)) {
+    UL <- U %*% t(Lambda)   # n × s
+  } else {
+    UL <- matrix(0, n, s)   # standard SAM
+  }
 
   ## ---- Species-level E-step (parallelisable) ----
   for (j in seq_len(s)) {

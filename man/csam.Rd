@@ -43,9 +43,9 @@ matrix \eqn{\boldsymbol{\Lambda}}.}
 
 \item{max_iter}{Integer; maximum number of ECM iterations.}
 
-\item{tol}{Numeric; convergence tolerance on the penalized log-likelihood.}
+\item{tol}{Numeric; convergence tolerance on the penalised log-likelihood.}
 
-\item{verbose}{Logical; if \code{TRUE}, prints the penalized log-likelihood at
+\item{verbose}{Logical; if \code{TRUE}, prints the penalised log-likelihood at
 each iteration.}
 
 \item{start}{Optional list of initial values with elements
@@ -77,7 +77,7 @@ coefficients.}
 (for Gaussian family).}
 \item{tau}{\eqn{s \times g} matrix of posterior species–archetype
 memberships.}
-\item{penalized_loglik}{Final penalized log-likelihood value.}
+\item{penalised_loglik}{Final penalised log-likelihood value.}
 \item{iterations}{Number of ECM iterations performed.}
 \item{family}{The GLM family used.}
 \item{trace}{If \code{trace = TRUE}, a list containing parameter and
@@ -95,7 +95,7 @@ for species \eqn{j = 1,\ldots,s}, sites \eqn{i = 1,\ldots,n}, and archetypes
 modeled as a finite mixture of regression models with component densities
 from a common exponential family.
 
-The penalized log-likelihood is
+The penalised log-likelihood is
 \deqn{
   \ell_{\text{pen}}(\theta; Y, X)
   = \ell(\theta; Y, X)
@@ -112,7 +112,7 @@ Estimation proceeds via an ECM algorithm with:
 \item three conditional M-steps updating archetype coefficients
 \eqn{\boldsymbol{B}}, species-specific parameters
 \eqn{(\boldsymbol{\beta}_0, \boldsymbol{\Lambda}, \boldsymbol{\phi})},
-and site scores \eqn{\mathbf{U}}, respectively, using penalized IRLS.
+and site scores \eqn{\mathbf{U}}, respectively, using penalised IRLS.
 }
 }
 \examples{

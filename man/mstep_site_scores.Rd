@@ -25,7 +25,7 @@ via the internal GLM solver.}
 to site scores (ridge penalty). Default \code{0} (no penalty).}
 
 \item{maxit}{\strong{integer} maximum number of IRLS iterations passed to the
-internal \code{\link{penalized_glm_fit}} call (default \code{1}).}
+internal \code{\link{penalised_glm_fit}} call (default \code{1}).}
 
 \item{B}{\strong{numeric matrix} of archetype regression coefficients with
 \eqn{g} rows and \eqn{p} columns (row \code{k} = coefficients for archetype \code{k}).}
@@ -51,7 +51,7 @@ containing the updated site scores (row \code{i} = updated scores for site \code
 \description{
 Update site-level latent variables \code{U} (site scores) in the conditional
 M-step of the Correlated Species Archetype Model (CSAM). For each site the
-function stacks species-by-archetype observations and fits a penalized GLM
+function stacks species-by-archetype observations and fits a penalised GLM
 to update the site's latent coordinates. Species loadings \code{Lambda}
 serve as covariates in the per-site regression, archetype contributions
 \code{X \%*\% B\link{k, }} enter as offsets, and posterior species-to-archetype
@@ -64,7 +64,7 @@ stacked design matrix uses the species loadings \eqn{\lambda_j} (row
 \code{j} of \code{Lambda}) as covariates; the archetype contribution
 \eqn{X[i, ] B_k}, and species intercept \eqn{\beta_{0j}} are included as
 an observation-level offset. Observation weights are given by
-\eqn{\tau_{jk}}. A penalized GLM is fitted via \code{\link{penalized_glm_fit}}
+\eqn{\tau_{jk}}. A penalised GLM is fitted via \code{\link{penalised_glm_fit}}
 with penalty weights \code{rep(1, d)} so that all dimensions of the site
 score receive a ridge penalty scaled by \code{psi1}. The fitted
 coefficients replace the corresponding row of \code{U}.
@@ -89,11 +89,11 @@ dim(U_upd)  # n x d
 
 }
 \seealso{
-\code{\link{penalized_glm_fit}}, \code{\link{mstep_arch_pars}},
+\code{\link{penalised_glm_fit}}, \code{\link{mstep_arch_pars}},
 \code{\link{mstep_species_pars}}, \code{\link{estep_post_probs}}
 }
 \keyword{csam}
 \keyword{latent}
 \keyword{mstep}
-\keyword{penalized}
+\keyword{penalised}
 \keyword{site}

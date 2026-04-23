@@ -31,9 +31,9 @@ with rows corresponding to sites and columns to species.}
 
 \item{max_iter}{Integer; maximum number of ECM iterations.}
 
-\item{tol}{Numeric; convergence tolerance on the penalized log-likelihood.}
+\item{tol}{Numeric; convergence tolerance on the penalised log-likelihood.}
 
-\item{verbose}{Logical; if \code{TRUE}, prints the penalized log-likelihood at
+\item{verbose}{Logical; if \code{TRUE}, prints the penalised log-likelihood at
 each iteration.}
 
 \item{start}{Optional list of initial values with elements
@@ -60,7 +60,7 @@ coefficients.}
 (for Gaussian family).}
 \item{tau}{\eqn{s \times g} matrix of posterior species–archetype
 memberships.}
-\item{penalized_loglik}{Final log-likelihood value. NOTE this is labelled "penalized" only for software compatibility with downstream functions for \code{csam}}
+\item{penalised_loglik}{Final log-likelihood value. NOTE this is labelled "penalised" only for software compatibility with downstream functions for \code{csam}}
 \item{iterations}{Number of ECM iterations performed.}
 \item{family}{The GLM family used.}
 \item{trace}{If \code{trace = TRUE}, a list containing parameter and

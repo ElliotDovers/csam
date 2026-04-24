@@ -19,7 +19,8 @@ csam(
   maxit_step1 = 5,
   maxit_step2 = 5,
   maxit_step3 = 5,
-  trace = TRUE
+  trace = TRUE,
+  backend = c("C++", "R")
 )
 }
 \arguments{

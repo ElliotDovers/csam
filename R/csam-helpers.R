@@ -1775,3 +1775,101 @@ tau_from_tmb_fit <- function(Y, X, par.list, family) {
 
   tau
 }
+
+#' standard error estimator for csam fits
+#'
+#' Computes standard errors for all model parameters in a fitted `"csam"` object using TMB's sdreport function.
+#'
+#' The fitted `csam` object **must** contain `Y`, `X`, and the penalty values
+#' `psi1` and `psi2` (these are inferred from the object).
+#'
+#' @param object A fitted object of class `"csam"` (must contain `Y`, `X`,
+#'   `psi1`, and `psi2`)..
+#' @param U.random Logical; indicating whether to treat site effects as fixed or random when using \code{method = "tmb"}.
+#' @param which.pars Character; of parameter group name(s) to be returned. Must be a subset of the canonical parameters of a CSAM TMB fit.
+#'
+#' @return A two column data frame of estimates and corresponding standard errors
+#'
+#' @examples
+#' \dontrun{
+#' fit <- csam(Y, X, g = 2, d = 1, family = poisson(), trace = TRUE)
+#' fit$Y <- Y; fit$X <- X
+#' # csam now stores psi1 and psi2 internally
+#' V_louis <- vcov(fit, method = "louis")
+#' }
+#'
+#' @export
+#'
+#' @importFrom TMB sdreport MakeADFun
+se_csam <- function(object, U.random = TRUE, which.pars = NULL) {
+  n <- nrow(object$Y)
+  s <- ncol(object$Y)
+  g <- nrow(object$B)
+
+  # determine if the model is a vanilla SAM
+  vanilla.sam <- is.null(object$Lambda)
+
+  # set up required data list for the AD function
+  data.list <- list(
+    Y = object$Y,
+    X = object$X,
+    psi1 = if (!vanilla.sam) { object$psi1 } else { 0 },
+    psi2 = if (!vanilla.sam) { object$psi2 } else { 0 },
+    family = switch(object$family$family,
+                    poisson = 0,
+                    binomial = 1,
+                    gaussian = 2),  # 0=Poisson, 1=Binomial, 2=Gaussian,...
+    lik_type = as.numeric(U.random)
+  )
+  # set up required parameter list for the AD function
+  start.pars.tmb = object$par.list
+  start.pars.tmb$logit_pi = stats::binomial()$linkfun(object$par.list$pi[-g])
+  start.pars.tmb$pi = NULL
+  start.pars.tmb$log_phi = log(object$par.list$phi)
+  start.pars.tmb$phi = NULL
+
+  # create the mapping of parameters according to family
+  mapping = list()
+  if (object$family$family %in% c("binomial", "poisson")) {
+    mapping$log_phi = factor(rep(NA, s))
+  }
+  # adjust inputs according to if the model is a vanilla SAM
+  if (vanilla.sam) {
+    start.pars.tmb$Lambda = matrix(rep(0, s), s, 1)
+    start.pars.tmb$U <- matrix(rep(0, n), n, 1)
+    data.list$lik_type = 0
+    mapping$U = factor(rep(NA, n * 1))
+    mapping$Lambda = factor(rep(NA, s * 1))
+  }
+
+  # set up the objective function
+  if (U.random) {
+    if (vanilla.sam) {
+      warning("Marginalised likelihood for a vanilla SAM will be slightly off")
+    }
+    obj <- TMB::MakeADFun(
+      data = data.list,
+      parameters = start.pars.tmb,
+      DLL = "csam", random = "U", map = mapping,
+      silent = TRUE
+    )
+  } else {
+    obj <- TMB::MakeADFun(
+      data = data.list,
+      parameters = start.pars.tmb,
+      DLL = "csam", map = mapping,
+      silent = TRUE
+    )
+  }
+
+  out <- summary(TMB::sdreport(obj))
+
+  if (!is.null(which.pars)) {
+    if (!all(which.pars %in% c("beta0", "B", "logit_pi", "Lambda", "U", "log_phi"))) {
+      stop(paste0(which.pars[!which.pars %in% c("beta0", "B", "logit_pi", "Lambda", "U", "log_phi")], " not found in canonical TMB parameters"))
+    }
+    out <- out[rownames(out) %in% which.pars, ]
+  }
+
+  return(out)
+}

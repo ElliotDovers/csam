@@ -4,7 +4,16 @@
 \alias{mstep_species_pars}
 \title{M-step: update species-level parameters for CSAM (species intercepts, loadings, dispersion)}
 \usage{
-mstep_species_pars(Y, X, par.list, tau, family, psi2 = 0, maxit = 1)
+mstep_species_pars(
+  Y,
+  X,
+  par.list,
+  tau,
+  family,
+  psi2 = 0,
+  maxit = 1,
+  backend = c("C++", "R")
+)
 }
 \arguments{
 \item{Y}{numeric matrix of species responses with \eqn{n} rows (sites) and

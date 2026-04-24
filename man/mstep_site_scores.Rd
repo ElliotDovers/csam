@@ -4,7 +4,16 @@
 \alias{mstep_site_scores}
 \title{M-step: update site scores (latent site covariates) for CSAM}
 \usage{
-mstep_site_scores(Y, X, par.list, tau, family, psi1 = 0, maxit = 1)
+mstep_site_scores(
+  Y,
+  X,
+  par.list,
+  tau,
+  family,
+  psi1 = 0,
+  maxit = 1,
+  backend = c("C++", "R")
+)
 }
 \arguments{
 \item{Y}{\strong{numeric matrix} of species responses with \eqn{n} rows (sites)

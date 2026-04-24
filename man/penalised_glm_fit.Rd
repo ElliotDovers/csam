@@ -15,7 +15,6 @@ penalised_glm_fit(
   start = NULL,
   maxit = 50,
   tol = 1e-06,
-  phi = 1,
   verbose = FALSE,
   backend = c("C++", "R")
 )
@@ -63,7 +62,7 @@ A \code{list} with components:
 \item{\code{coefficients}}{numeric vector of length \eqn{p} with fitted
 regression coefficients.}
 \item{\code{converged}}{logical indicating whether the algorithm converged.}
-\item{\code{iterations}}{numeric indicated the number of iterations used.}
+\item{\code{iterations}}{numeric indicating the number of iterations used.}
 }
 }
 \description{

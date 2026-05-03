@@ -640,29 +640,29 @@ estep_post_probs <- function(Y, X, par.list, family,
 #' @seealso \code{\link[stats]{glm.fit}}, \code{\link{estep_post_probs}}
 #' @export
 mstep_arch_pars <- function(Y, X, par.list, tau,
-                            family, maxit = 1) {
+                            family, maxit = 1, use.starts = FALSE) {
 
   beta0 = par.list$beta0; B = par.list$B; pi = par.list$pi; U = par.list$U; Lambda = par.list$Lambda; phi = par.list$phi
 
   n <- nrow(Y); s <- ncol(Y); g <- nrow(B); p <- ncol(X)
   B_new <- B
 
-  # note the following removes non-convergence as we are typically using only a single iteration
-  safe_glm_fit <- function(...,
-                           pattern = "algorithm did not converge") {
-    withCallingHandlers(
-      stats::glm.fit(...),
-      warning = function(w) {
-        msg <- conditionMessage(w)
-        if (grepl(pattern, msg, fixed = TRUE)) {
-          invokeRestart("muffleWarning")
-        } else {
-          # re-emit other warnings
-          warning(w)
-        }
-      }
-    )
-  }
+  # # note the following removes non-convergence as we are typically using only a single iteration
+  # safe_glm_fit <- function(...,
+  #                          pattern = "algorithm did not converge") {
+  #   withCallingHandlers(
+  #     stats::glm.fit(...),
+  #     warning = function(w) {
+  #       msg <- conditionMessage(w)
+  #       if (grepl(pattern, msg, fixed = TRUE)) {
+  #         invokeRestart("muffleWarning")
+  #       } else {
+  #         # re-emit other warnings
+  #         warning(w)
+  #       }
+  #     }
+  #   )
+  # }
 
   ## ---- Shared linear predictor (fixed in this CM-step) ----
   UL <- U %*% t(Lambda)    # n × s
@@ -687,10 +687,19 @@ mstep_arch_pars <- function(Y, X, par.list, tau,
       weights_stack[idx] <- tau[j, k]
     }
 
-    fit <- safe_glm_fit(
+    # fit <- safe_glm_fit(
+    #   x = X_stack,
+    #   y = y_stack,
+    #   weights = weights_stack,
+    #   offset = offset_stack,
+    #   family = family,
+    #   control = list(maxit = maxit)
+    # )
+    fit <- stats::glm.fit(
       x = X_stack,
       y = y_stack,
       weights = weights_stack,
+      start = if (use.starts) {B_new[k, ]} else {NULL},
       offset = offset_stack,
       family = family,
       control = list(maxit = maxit)
@@ -796,7 +805,7 @@ mstep_arch_pars <- function(Y, X, par.list, tau,
 #' @export
 mstep_species_pars <- function(
     Y, X, par.list, tau,
-    family, psi2 = 0, maxit = 1, backend = c("C++", "R")
+    family, psi2 = 0, maxit = 1, backend = c("C++", "R"), use.starts = FALSE
 ) {
   backend <- match.arg(backend)
 
@@ -848,7 +857,7 @@ mstep_species_pars <- function(
       penalty_weights = c(0, rep(1, d)),
       lambda  = psi2,
       family  = family,
-      start   = c(beta0_new[j], Lambda_new[j, ]),
+      start   = if (use.starts) {c(beta0_new[j], Lambda_new[j, ])} else {NULL},
       maxit   = maxit,
       backend = backend
     )
@@ -942,7 +951,7 @@ mstep_species_pars <- function(
 #' @keywords csam site mstep latent penalised
 #' @export
 mstep_site_scores <- function(Y, X, par.list, tau,
-                              family, psi1 = 0, maxit = 1, backend = c("C++", "R")) {
+                              family, psi1 = 0, maxit = 1, backend = c("C++", "R"), use.starts = FALSE) {
   backend <- match.arg(backend)
 
   beta0  <- par.list$beta0
@@ -996,7 +1005,7 @@ mstep_site_scores <- function(Y, X, par.list, tau,
       penalty_weights = penalty_weights,
       lambda = psi1,
       family = family,
-      start = U_new[i, ],
+      start = if (use.starts) {U_new[i, ]} else {NULL},
       maxit = maxit,
       backend = backend
     )

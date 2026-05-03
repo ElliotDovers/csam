@@ -10,8 +10,8 @@ csam(
   g = 3,
   d = 2,
   family = poisson(),
-  psi1 = 1,
-  psi2 = 1,
+  psi1 = 0,
+  psi2 = 0,
   max_iter = 100,
   tol = 1e-06,
   verbose = TRUE,
@@ -20,7 +20,9 @@ csam(
   maxit_step2 = 5,
   maxit_step3 = 5,
   trace = TRUE,
-  backend = c("C++", "R")
+  backend = c("C++", "R"),
+  constrain = FALSE,
+  inner.constrain = FALSE
 )
 }
 \arguments{
@@ -64,6 +66,13 @@ update step.}
 
 \item{trace}{Logical; if \code{TRUE}, stores parameter and likelihood traces
 across ECM iterations for diagnostics and plotting.}
+
+\item{backend}{Character string; if \code{TRUE}, stores parameter and likelihood traces
+across ECM iterations for diagnostics and plotting.}
+
+\item{constrain}{Logical; if \code{TRUE}, performs an identifiability constraint on the factor analytic term.}
+
+\item{inner.constrain}{Logical; if \code{TRUE}, performs an identifiability constraint on the factor analytic term within each iteration of the EM algorithm.}
 }
 \value{
 An object of class \code{"csam"} with components:

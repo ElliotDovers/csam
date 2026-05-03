@@ -57,6 +57,10 @@
 #'   update step.
 #' @param trace Logical; if `TRUE`, stores parameter and likelihood traces
 #'   across ECM iterations for diagnostics and plotting.
+#' @param backend Character string; if `TRUE`, stores parameter and likelihood traces
+#'   across ECM iterations for diagnostics and plotting.
+#' @param constrain Logical; if `TRUE`, performs an identifiability constraint on the factor analytic term.
+#' @param inner.constrain Logical; if `TRUE`, performs an identifiability constraint on the factor analytic term within each iteration of the EM algorithm.
 #'
 #' @return An object of class `"csam"` with components:
 #' \describe{
@@ -89,10 +93,10 @@
 #'
 #' @export
 csam <- function(Y, X, g = 3, d = 2, family = poisson(),
-                 psi1 = 1, psi2 = 1, max_iter = 100, tol = 1e-6,
+                 psi1 = 0, psi2 = 0, max_iter = 100, tol = 1e-6,
                  verbose = TRUE, start = NULL,
                  maxit_step1 = 5, maxit_step2 = 5, maxit_step3 = 5,
-                 trace = TRUE, backend = c("C++", "R")) {
+                 trace = TRUE, backend = c("C++", "R"), constrain = FALSE, inner.constrain = FALSE) {
 
   backend <- match.arg(backend)
   n <- nrow(Y); s <- ncol(Y); p <- ncol(X)
@@ -201,6 +205,13 @@ csam <- function(Y, X, g = 3, d = 2, family = poisson(),
     par.list$U <- mstep_site_scores(Y = Y, X = X, par.list = par.list, tau = tau,
                            family = family, psi1 = psi1, maxit = maxit_step3, backend = backend)
 
+    # apply constraints to the factor analytic terms if desired
+    if (inner.constrain) {
+      new.fa <- correct.uv(par.list$U, par.list$Lambda)
+      par.list$U <- new.fa$u
+      par.list$Lambda <- new.fa$v
+    }
+
     par.list$pi <- colMeans(tau)
     par.list$pi <- par.list$pi / sum(par.list$pi)
 
@@ -259,6 +270,13 @@ csam <- function(Y, X, g = 3, d = 2, family = poisson(),
     trace_store$pll      <- trace_store$pll[1:iter]
     trace_store$pll_diff <- trace_store$pll_diff[1:iter]
     trace_store$is_monotone <- trace_store$is_monotone[1:iter]
+  }
+
+  # apply constraints to the factor analytic terms if desired
+  if (constrain) {
+    new.fa <- correct.uv(par.list$U, par.list$Lambda)
+    par.list$U <- new.fa$u
+    par.list$Lambda <- new.fa$v
   }
 
   out <- list(
@@ -695,8 +713,8 @@ csam_tmb <- function(Y, X, g = 3, d = 2, family = poisson(),
   data.list <- list(
     Y = Y,
     X =  X,
-    psi1 = 1,
-    psi2 = 1,
+    psi1 = if (!vanilla.sam) { psi1 } else { 0 },
+    psi2 = if (!vanilla.sam) { psi2 } else { 0 },
     family = switch(family$family,
                     poisson = 0,
                     binomial = 1,

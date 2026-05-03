@@ -1412,37 +1412,6 @@ init.sam.pars <- function(Y, X, g = 3, family = poisson()) {
   start.pars
 }
 
-init.fa.pars_gllvm <- function(Y, X, g = 3, family = poisson(), d = 2) {
-
-  n <- nrow(Y); s <- ncol(Y); p <- ncol(X)
-
-  # initialise usual SAM parameters
-  start.pars = csam::init.sam.pars(Y, X, g = g, family = family)
-
-  # fit an initial species-specific models to obtain warm starts as in Hui et al. 2013
-  res = matrix(rep(0, n * s), n, s)
-  for (sp in 1:s) {
-    if (family$family == "binomial") {
-      tmp.offset = start.pars$beta0[sp] + X %*% start.pars$B[attr(start.pars,"sp clust")[sp], ]
-      tmp.m = stats::glm(y ~ 0, data = data.frame(y = Y[,sp]), family = family, offset = tmp.offset)
-      res[ , sp] = DHARMa:::residuals.DHARMa(DHARMa::simulateResiduals(tmp.m), quantileFunction = qnorm)
-    } else {
-      tmp.offset = X %*% start.pars$B[attr(start.pars,"sp clust")[sp], ]
-      tmp.m = glmmTMB::glmmTMB(y ~ 1, data = data.frame(y = Y[,sp]), family = family, offset = tmp.offset)
-      res[ , sp] = glmmTMB:::residuals.glmmTMB(tmp.m, type = "dunn-smyth")
-    }
-  }
-  # perform factor analysis on the residuals
-  tmp.fa = gllvm::gllvm(y = res, family = gaussian(), num.lv = d)
-  tmp.dat = data.frame(y = as.vector(res), x = matrix(rep(1, n * s), ncol = 1))
-
-  # update the starting parameters for the slopes and intercepts
-  start.pars$U = tmp.fa$lvs
-  start.pars$Lambda = coef(tmp.fa)$Species.scores
-
-  start.pars[c("beta0", "B", "pi", "U", "Lambda", "phi")]
-}
-
 #' Initialise starting values for correlated Species Archetype Models
 #'
 #' Generates starting values for a correlated Species Archetype Model (CSAM) by fitting
@@ -1462,6 +1431,7 @@ init.fa.pars_gllvm <- function(Y, X, g = 3, family = poisson(), d = 2) {
 #' @param family A GLM family object used for the species‑specific warm‑start
 #'   models. Defaults to \code{poisson()}.
 #' @param d Integer specifying the number of latent factors. Defaults to 2.
+#' @param fa.method Character string: indicating which FA software/approach to use.
 #'
 #' @details
 #' The function proceeds in three stages:
@@ -1502,8 +1472,9 @@ init.fa.pars_gllvm <- function(Y, X, g = 3, family = poisson(), d = 2) {
 #' @importFrom glmmTMB glmmTMB getME
 #' @importFrom DHARMa simulateResiduals
 #' @importFrom stats glm
-init.fa.pars <- function(Y, X, g = 3, family = poisson(), d = 2) {
+init.fa.pars <- function(Y, X, g = 3, family = poisson(), d = 2, fa.method = c("svd", "prcomp", "qr", "fa", "glmmTMB", "gllvm")) {
 
+  fa.method = match.arg(fa.method)
   n <- nrow(Y); s <- ncol(Y); p <- ncol(X)
 
   # initialise usual SAM parameters
@@ -1551,21 +1522,72 @@ init.fa.pars <- function(Y, X, g = 3, family = poisson(), d = 2) {
   #   }
   # }
 
-  # put data in long format
-  tmp.dat = data.frame(res = as.vector(res), sp = factor(rep(1:s, each = nrow(res))), site = factor(rep(1:n, s)))
-  # tmp.dat = data.frame(res = as.vector(res), sp = factor(rep(1:s, each = nrow(res))), site = factor(rep(1:n, s * g)), wt = rep(rep(start.pars$pi, each = n), s))
-  # perform factor analysis on the residuals
-  tmp.fa = glmmTMB::glmmTMB(res ~  0 + rr(sp + 0|site, d = d), data = tmp.dat, family = gaussian)
+  if (fa.method == "fa") {
+    # perform factor analysis on the residuals
+    tmp.cor = stats::cor(res)
+    tmp.fa = psych::fa(tmp.cor, nfactors = d)
+    tmp.fa = factanal(tmp.cor, factors = d)
 
-  # get the scores (these include zero's for full rank model)
-  rr_b = glmmTMB::getME(tmp.fa, "b")
-  # get out the observation-specific coefs (aka factor scores) by selecting d elements out of each s blocks
-  scores = list()
-  for (i in 1:d) {
-    scores[[i]] = rr_b[seq(i,length(rr_b), by = s)]
+    # update the starting parameters FA terms
+    start.pars$U = unname(tmp.fa$scores)
+    start.pars$Lambda = unname(suppressWarnings(as.data.frame(tmp.fa$loadings)[1:s, ]))
+
+  } else if (fa.method == "glmmTMB") {
+
+    # put data in long format
+    tmp.dat = data.frame(res = as.vector(res), sp = factor(rep(1:s, each = nrow(res))), site = factor(rep(1:n, s)))
+    # perform factor analysis on the residuals
+    tmp.fa = glmmTMB::glmmTMB(res ~  0 + rr(sp + 0|site, d = d), data = tmp.dat, family = gaussian)
+
+    # get the scores (these include zero's for full rank model)
+    rr_b = glmmTMB::getME(tmp.fa, "b")
+    # get out the observation-specific coefs (aka factor scores) by selecting d elements out of each s blocks
+    scores = list()
+    for (i in 1:d) {
+      scores[[i]] = rr_b[seq(i,length(rr_b), by = s)]
+    }
+
+    # update the starting parameters FA terms
+    start.pars$U = sapply(scores, cbind)
+    start.pars$Lambda = tmp.fa$obj$env$report(tmp.fa$fit$parfull)$fact_load[[which(tmp.fa$modelInfo$grpVar == "site" & sapply(tmp.fa$modelInfo$reStruc$condReStruc, function(x){x$blockCode}) == 9)]]
+
+  } else if (fa.method == "gllvm") {
+    # perform factor analysis on the residuals
+    tmp.fa = gllvm::gllvm(y = res, family = gaussian(), num.lv = d)
+
+    # update the starting parameters FA terms
+    start.pars$U = unname(tmp.fa$lvs)
+    start.pars$Lambda = unname(coef(tmp.fa)$Species.scores)
+  } else if (fa.method == "svd") {
+
+    M <- svd(res)
+    D_half <- diag(sqrt(M$d[1:d]))
+
+    start.pars$Lambda <- M$v[, 1:d] %*% D_half
+    start.pars$U <- M$u[, 1:d] %*% solve(D_half)
+
+
+  } else if (fa.method == "qr") {
+
+    Q <- qr.Q(qr(res), complete = FALSE)
+    start.pars$U <- Q[, 1:d]
+
+    start.pars$Lambda <- crossprod(res, start.pars$U)
+
+  } else if (fa.method == "prcomp") {
+
+    pc <- prcomp(res,
+      center = FALSE, # residuals already mean ~ 0
+      scale. = FALSE,   # DO NOT rescale N(0,1) residuals
+      rank. = d         # truncated PCA (efficient)
+    )
+
+    D_half <- diag(sqrt(pc$sdev[1:d]))
+
+    start.pars$U <- pc$x %*% solve(D_half)
+    start.pars$Lambda <- pc$rotation %*% D_half
+
   }
-  start.pars$U = sapply(scores, cbind)
-  start.pars$Lambda = tmp.fa$obj$env$report(tmp.fa$fit$parfull)$fact_load[[which(tmp.fa$modelInfo$grpVar == "site" & sapply(tmp.fa$modelInfo$reStruc$condReStruc, function(x){x$blockCode}) == 9)]]
 
   # return start pars in canonical order
   start.pars[c("beta0", "B", "pi", "U", "Lambda", "phi")]
@@ -1872,4 +1894,50 @@ se_csam <- function(object, U.random = TRUE, which.pars = NULL) {
   }
 
   return(out)
+}
+
+#' Impose constraints on the factor scores and loadings
+#'
+#' @description
+#' Imposes constraints on the factor scores and loadings as in GMF.
+#'
+#' @param U A numeric matrix of factor scores of dimension \eqn{n \times d},
+#'   with rows corresponding to sites and columns to the dimension of the factor analytic term.
+#' @param V A numeric matrix of factor loadings of dimension \eqn{s \times d},
+#'   with rows corresponding to species and columns to the dimension of the factor analytic term.
+#'
+#' @return A list of the constrained factor analytic terms with components:
+#' \describe{
+#'   \item{u}{A numeric matrix of factor scores of dimension \eqn{n \times d}}
+#'   \item{v}{A numeric matrix of factor loadings of dimension \eqn{s \times d}}
+#' }
+#'
+#' @examples
+#' \dontrun{
+#' set.seed(1)
+#' n <- 50; s <- 10; p <- 2
+#' X <- cbind(1, scale(matrix(rnorm(n * (p - 1)), n, p - 1)))
+#' Y <- matrix(rpois(n * s, lambda = 5), n, s)
+#' fit <- csam(Y, X, g = 2, d = 1, family = poisson(), trace = TRUE)
+#' plot.csam(fit, param = "pll")
+#' }
+#'
+#' @export
+#'
+#' @importFrom whitening whiteningMatrix
+correct.uv <- function (U, V) {
+  S = cov(U)
+  if (ncol(U) == 1) {
+    return(list(u = U/sqrt(c(S)), v = V * sqrt(c(S))))
+  }
+  W = whitening::whiteningMatrix(S)
+  U = U %*% W
+  V = V %*% t(solve(W))
+  V.qr = qr(t(V))
+  U = U %*% qr.Q(V.qr)
+  V = t(qr.R(V.qr))
+  d = diag(V)
+  V = t(sign(d) * t(V))
+  U = t(sign(d) * t(U))
+  list(u = U, v = V)
 }

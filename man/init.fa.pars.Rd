@@ -4,7 +4,14 @@
 \alias{init.fa.pars}
 \title{Initialise starting values for correlated Species Archetype Models}
 \usage{
-init.fa.pars(Y, X, g = 3, family = poisson(), d = 2)
+init.fa.pars(
+  Y,
+  X,
+  g = 3,
+  family = poisson(),
+  d = 2,
+  fa.method = c("svd", "prcomp", "qr", "fa", "glmmTMB", "gllvm")
+)
 }
 \arguments{
 \item{Y}{A numeric response matrix with \eqn{n} rows (sites) and \eqn{s}
@@ -18,6 +25,8 @@ columns (species).}
 models. Defaults to \code{poisson()}.}
 
 \item{d}{Integer specifying the number of latent factors. Defaults to 2.}
+
+\item{fa.method}{Character string: indicating which FA software/approach to use.}
 }
 \value{
 A list containing initial parameter values for a SAM, with an

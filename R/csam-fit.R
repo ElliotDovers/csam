@@ -207,9 +207,13 @@ csam <- function(Y, X, g = 3, d = 2, family = poisson(),
 
     # apply constraints to the factor analytic terms if desired
     if (inner.constrain) {
-      new.fa <- correct.uv(par.list$U, par.list$Lambda)
-      par.list$U <- new.fa$u
-      par.list$Lambda <- new.fa$v
+      if (all(par.list$U == 0)) {
+        warning("no constraint applied to factor terms: all scores are zero")
+      } else {
+        new.fa <- correct.uv(par.list$U, par.list$Lambda)
+        par.list$U <- new.fa$u
+        par.list$Lambda <- new.fa$v
+      }
     }
 
     par.list$pi <- colMeans(tau)
@@ -274,9 +278,13 @@ csam <- function(Y, X, g = 3, d = 2, family = poisson(),
 
   # apply constraints to the factor analytic terms if desired
   if (constrain) {
-    new.fa <- correct.uv(par.list$U, par.list$Lambda)
-    par.list$U <- new.fa$u
-    par.list$Lambda <- new.fa$v
+    if (all(par.list$U == 0)) {
+      warning("no constraint applied to factor terms: all scores are zero")
+    } else {
+      new.fa <- correct.uv(par.list$U, par.list$Lambda)
+      par.list$U <- new.fa$u
+      par.list$Lambda <- new.fa$v
+    }
   }
 
   out <- list(

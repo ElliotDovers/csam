@@ -1481,7 +1481,7 @@ init.sam.pars <- function(Y, X, g = 3, family = poisson()) {
 #' @importFrom glmmTMB glmmTMB getME
 #' @importFrom DHARMa simulateResiduals
 #' @importFrom stats glm
-init.fa.pars <- function(Y, X, g = 3, family = poisson(), d = 2, fa.method = c("svd", "prcomp", "qr", "fa", "glmmTMB", "gllvm")) {
+init.fa.pars <- function(Y, X, g = 3, family = poisson(), d = 2, fa.method = c("svd", "prcomp", "qr", "fa", "glmmTMB", "gllvm"), update.intercepts = TRUE) {
 
   fa.method = match.arg(fa.method)
   n <- nrow(Y); s <- ncol(Y); p <- ncol(X)
@@ -1495,12 +1495,21 @@ init.fa.pars <- function(Y, X, g = 3, family = poisson(), d = 2, fa.method = c("
   res = matrix(rep(0, n * s), n, s)
   for (sp in 1:s) {
     if (family$family == "binomial") {
-      tmp.offset = start.pars$beta0[sp] + X %*% start.pars$B[attr(start.pars,"sp clust")[sp], ]
-      tmp.m = stats::glm(y ~ 0, data = data.frame(y = Y[,sp]), family = family, offset = tmp.offset)
+      if (update.intercepts) {
+        tmp.offset = X %*% start.pars$B[attr(start.pars,"sp clust")[sp], ]
+        tmp.m = stats::glm(y ~ 1, data = data.frame(y = Y[,sp]), family = family, offset = tmp.offset)
+        start.pars$beta0[sp] = tmp.m$coefficients
+      } else {
+        tmp.offset = start.pars$beta0[sp] + X %*% start.pars$B[attr(start.pars,"sp clust")[sp], ]
+        tmp.m = stats::glm(y ~ 0, data = data.frame(y = Y[,sp]), family = family, offset = tmp.offset)
+      }
       res[ , sp] = DHARMa:::residuals.DHARMa(DHARMa::simulateResiduals(tmp.m), quantileFunction = qnorm)
     } else {
       tmp.offset = X %*% start.pars$B[attr(start.pars,"sp clust")[sp], ]
       tmp.m = glmmTMB::glmmTMB(y ~ 1, data = data.frame(y = Y[,sp]), family = family, offset = tmp.offset)
+      if (update.intercepts) {
+        start.pars$beta0[sp] = tmp.m$fit$par
+      }
       res[ , sp] = glmmTMB:::residuals.glmmTMB(tmp.m, type = "dunn-smyth")
     }
     # res[ , sp] = glmmTMB:::residuals.glmmTMB(tmp.m, type = "dunn-smyth") # CON: uses an unexported function, throws error for binomial, requires glmmTMB() rather than glm() above

@@ -214,6 +214,8 @@ csam <- function(Y, X, g = 3, d = 2, family = poisson(),
         if (exists("new.fa")) {
           par.list$U <- new.fa$u
           par.list$Lambda <- new.fa$v
+        } else {
+          warning("inner constraint could not be applied")
         }
       }
     }
@@ -283,9 +285,13 @@ csam <- function(Y, X, g = 3, d = 2, family = poisson(),
     if (all(par.list$U == 0)) {
       warning("no constraint applied to factor terms: all scores are zero")
     } else {
-      new.fa <- correct.uv(par.list$U, par.list$Lambda)
-      par.list$U <- new.fa$u
-      par.list$Lambda <- new.fa$v
+      try(assign("new.fa", correct.uv(par.list$U, par.list$Lambda)))
+      if (exists("new.fa")) {
+        par.list$U <- new.fa$u
+        par.list$Lambda <- new.fa$v
+      } else {
+        warning("post-hoc constraint could not be applied")
+      }
     }
   }
 

@@ -96,7 +96,7 @@ csam <- function(Y, X, g = 3, d = 2, family = poisson(),
                  psi1 = 0, psi2 = 0, max_iter = 100, tol = 1e-6,
                  verbose = TRUE, start = NULL,
                  maxit_step1 = 5, maxit_step2 = 5, maxit_step3 = 5,
-                 trace = TRUE, backend = c("C++", "R"), constrain = FALSE, inner.constrain = FALSE, starts.at.steps = FALSE) {
+                 trace = TRUE, backend = c("C++", "R"), constrain = FALSE, inner.constrain = FALSE, starts.at.steps = FALSE, trunc.tau.until.iter = 2) {
 
   backend <- match.arg(backend)
   n <- nrow(Y); s <- ncol(Y); p <- ncol(X)
@@ -185,7 +185,7 @@ csam <- function(Y, X, g = 3, d = 2, family = poisson(),
 
   for (iter in 1:max_iter) {
 
-    if (iter < 1) {
+    if (iter < trunc.tau.until.iter) {
       tau <- estep_post_probs(Y, X, par.list = par.list, family,
                               trunc.interval = TRUE)
     } else {
@@ -210,9 +210,11 @@ csam <- function(Y, X, g = 3, d = 2, family = poisson(),
       if (all(par.list$U == 0)) {
         warning("no constraint applied to factor terms: all scores are zero")
       } else {
-        new.fa <- correct.uv(par.list$U, par.list$Lambda)
-        par.list$U <- new.fa$u
-        par.list$Lambda <- new.fa$v
+        try(assign("new.fa", correct.uv(par.list$U, par.list$Lambda)))
+        if (exists("new.fa")) {
+          par.list$U <- new.fa$u
+          par.list$Lambda <- new.fa$v
+        }
       }
     }
 
@@ -229,14 +231,14 @@ csam <- function(Y, X, g = 3, d = 2, family = poisson(),
       break
     }
 
-    # if (pll - prev_pll < -1e-12) {
-    #   warning("penalised log-likelihood no longer monotonic increasing; stopping")
-    #   conv = NA
-    #   break
-    # }
+    if (pll - prev_pll < -1e-12) {
+      warning("penalised log-likelihood no longer monotonic increasing; stopping")
+      conv = 2
+      break
+    }
 
     if (verbose) {
-      cat(sprintf("Iter %3d: penalised log-lik = %.6f\n", iter, pll))
+      cat(sprintf(paste0("Iter %3d: ", if (psi1 != 0 | psi2 != 0) {"penalised "} else {""}, "logLik = %.6f | Ratio = %3f\n"), iter, pll, exp(prev_pll - pll)))
     }
 
     if (trace) {
@@ -505,7 +507,7 @@ sam <- function(Y, X, g = 3, family = poisson(),
     }
 
     if (verbose) {
-      cat(sprintf("Iter %3d: log-lik = %.6f\n", iter, pll))
+      cat(sprintf("Iter %3d: log-lik = %.6f | Ratio = %3f\n", iter, pll, exp(prev_pll - pll)))
     }
 
     if (trace) {

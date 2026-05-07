@@ -93,7 +93,7 @@
 #'
 #' @export
 csam <- function(Y, X, g = 3, d = 2, family = poisson(),
-                 psi1 = 0, psi2 = 0, max_iter = 100, tol = 1e-6,
+                 psi1 = 0, psi2 = 0, max_iter = 100, tol = 1e-3,
                  verbose = TRUE, start = NULL,
                  maxit_step1 = 5, maxit_step2 = 5, maxit_step3 = 5,
                  trace = TRUE, backend = c("C++", "R"), constrain = FALSE, inner.constrain = FALSE, starts.at.steps = FALSE, trunc.tau.until.iter = 2) {
@@ -227,18 +227,6 @@ csam <- function(Y, X, g = 3, d = 2, family = poisson(),
                  # list(beta0 = beta0, B = B, pi = pi, U = U, Lambda = Lambda, phi = phi),
                  g = g, d = d, family = family, psi1 = psi1, psi2 = psi2)
 
-    if (!is.finite(pll)) {
-      warning("penalised log-likelihood became non-finite; stopping")
-      conv = NA
-      break
-    }
-
-    if (pll - prev_pll < -1e-12) {
-      warning("penalised log-likelihood no longer monotonic increasing; stopping")
-      conv = 2
-      break
-    }
-
     if (verbose) {
       cat(sprintf(paste0("Iter %3d: ", if (psi1 != 0 | psi2 != 0) {"penalised "} else {""}, "logLik = %.6f | Ratio = %3f\n"), iter, pll, exp(prev_pll - pll)))
     }
@@ -255,6 +243,24 @@ csam <- function(Y, X, g = 3, d = 2, family = poisson(),
       diff <- pll - prev_pll
       trace_store$pll_diff[iter] <- diff
       trace_store$is_monotone[iter] <- (diff >= -1e-12)
+    }
+
+    if (!is.finite(pll)) {
+      warning(paste0(if (psi1 != 0 | psi2 != 0) {"penalised "} else {""}, "log-likelihood became non-finite; stopping at previous iteration"))
+      conv = NA
+      par.list <- prev_par.list
+      pll <- prev_pll
+      iter <- iter - 1
+      break
+    }
+
+    if (pll - prev_pll < -1e-12) {
+      warning(paste0(if (psi1 != 0 | psi2 != 0) {"penalised "} else {""}, "log-likelihood no longer monotonic increasing; stopping at previous iteration"))
+      conv = 2
+      par.list <- prev_par.list
+      pll <- prev_pll
+      iter <- iter - 1
+      break
     }
 
     if (abs(pll - prev_pll) < tol) {
@@ -305,6 +311,7 @@ csam <- function(Y, X, g = 3, d = 2, family = poisson(),
     tau = tau,
     par.list = par.list,
     penalised_loglik = pll,
+    marginalised_loglik = NA,
     iterations = iter,
     family = family,
     Y = Y,

@@ -96,7 +96,7 @@ csam <- function(Y, X, g = 3, d = 2, family = poisson(),
                  psi1 = 0, psi2 = 0, max_iter = 100, tol = 1e-3,
                  verbose = TRUE, start = NULL,
                  maxit_step1 = 5, maxit_step2 = 5, maxit_step3 = 5,
-                 trace = TRUE, backend = c("C++", "R"), constrain = FALSE, inner.constrain = FALSE, starts.at.steps = FALSE, trunc.tau.until.iter = 2) {
+                 trace = TRUE, backend = c("C++", "R"), constrain = FALSE, inner.constrain = FALSE, starts.at.steps = FALSE, trunc.tau.until.iter = 2, project.loadings = FALSE) {
 
   backend <- match.arg(backend)
   n <- nrow(Y); s <- ncol(Y); p <- ncol(X)
@@ -196,6 +196,23 @@ csam <- function(Y, X, g = 3, d = 2, family = poisson(),
     par.list$B <- mstep_arch_pars(Y = Y, X = X, par.list = par.list, tau = tau,
                          family = family, maxit = maxit_step1, use.starts = starts.at.steps)
 
+    ############################################################################
+    # can we constrain Lambda to be orthogonal to the archetype parameters?
+    if (project.loadings) {
+      # After updating U and Lambda
+      z_hat <- apply(tau, 1, which.max)
+
+      # Species-level archetype effects
+      B_sp <- par.list$B[z_hat, , drop = FALSE]
+      b <- B_sp / sqrt(sum(B_sp^2))
+
+      # Orthogonalise Lambda wrt archetype space
+      Lambda <- Lambda - b %*% crossprod(b, Lambda)
+
+      par.list$Lambda <- Lambda
+    }
+    ############################################################################
+
     sp <- mstep_species_pars(Y = Y, X = X, par.list = par.list, tau = tau,
                              family = family, psi2 = psi2, maxit = maxit_step2, backend = backend, use.starts = starts.at.steps)
     par.list$beta0  <- sp$beta0
@@ -254,14 +271,14 @@ csam <- function(Y, X, g = 3, d = 2, family = poisson(),
       break
     }
 
-    if (pll - prev_pll < -1e-12) {
-      warning(paste0(if (psi1 != 0 | psi2 != 0) {"penalised "} else {""}, "log-likelihood no longer monotonic increasing; stopping at previous iteration"))
-      conv = 2
-      par.list <- prev_par.list
-      pll <- prev_pll
-      iter <- iter - 1
-      break
-    }
+    # if (pll - prev_pll < -1e-12) {
+    #   warning(paste0(if (psi1 != 0 | psi2 != 0) {"penalised "} else {""}, "log-likelihood no longer monotonic increasing; stopping at previous iteration"))
+    #   conv = 2
+    #   par.list <- prev_par.list
+    #   pll <- prev_pll
+    #   iter <- iter - 1
+    #   break
+    # }
 
     if (abs(pll - prev_pll) < tol) {
       conv = 0

@@ -849,18 +849,30 @@ mstep_species_pars <- function(
       weights_stack[idx] <- tau[j, k]
     }
 
-    fit <- penalised_glm_fit(
-      X       = X_stack,
-      y       = y_stack,
-      weights = weights_stack,
-      offset  = offset_stack,
-      penalty_weights = c(0, rep(1, d)),
-      lambda  = psi2,
-      family  = family,
-      start   = if (use.starts) {c(beta0_new[j], Lambda_new[j, ])} else {NULL},
-      maxit   = maxit,
-      backend = backend
-    )
+    if (psi2 == 0) {
+      fit <- stats::glm.fit(
+        x = X_stack,
+        y = y_stack,
+        weights = weights_stack,
+        start = if (use.starts) {c(beta0_new[j], Lambda_new[j, ])} else {NULL},
+        offset = offset_stack,
+        family = family,
+        control = list(maxit = maxit)
+      )
+    } else {
+      fit <- penalised_glm_fit(
+        X       = X_stack,
+        y       = y_stack,
+        weights = weights_stack,
+        offset  = offset_stack,
+        penalty_weights = c(0, rep(1, d)),
+        lambda  = psi2,
+        family  = family,
+        start   = if (use.starts) {c(beta0_new[j], Lambda_new[j, ])} else {NULL},
+        maxit   = maxit,
+        backend = backend
+      )
+    }
 
     if (all(is.finite(fit$coefficients))) {
       beta0_new[j]    <- fit$coefficients[1]
@@ -997,18 +1009,30 @@ mstep_site_scores <- function(Y, X, par.list, tau,
       }
     }
 
-    fit <- penalised_glm_fit(
-      X = X_stack,
-      y = y_stack,
-      weights = weights_stack,
-      offset = offset_stack,
-      penalty_weights = penalty_weights,
-      lambda = psi1,
-      family = family,
-      start = if (use.starts) {U_new[i, ]} else {NULL},
-      maxit = maxit,
-      backend = backend
-    )
+    if (psi1 == 0) {
+      fit <- stats::glm.fit(
+        x = X_stack,
+        y = y_stack,
+        weights = weights_stack,
+        start = if (use.starts) {U_new[i, ]} else {NULL},
+        offset = offset_stack,
+        family = family,
+        control = list(maxit = maxit)
+      )
+    } else {
+      fit <- penalised_glm_fit(
+        X = X_stack,
+        y = y_stack,
+        weights = weights_stack,
+        offset = offset_stack,
+        penalty_weights = penalty_weights,
+        lambda = psi1,
+        family = family,
+        start = if (use.starts) {U_new[i, ]} else {NULL},
+        maxit = maxit,
+        backend = backend
+      )
+    }
 
     if (!is.null(fit$coefficients) &&
         all(is.finite(fit$coefficients))) {

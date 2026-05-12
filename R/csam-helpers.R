@@ -805,8 +805,7 @@ mstep_arch_pars <- function(Y, X, par.list, tau,
 #' @export
 mstep_species_pars <- function(
     Y, X, par.list, tau,
-    family, psi2 = 0, maxit = 1, backend = c("C++", "R"), use.starts = FALSE
-) {
+    family, psi2 = 0, maxit = 1, backend = c("C++", "R"), use.starts = FALSE, use.glm.fit.when.unpenalised = FALSE) {
   backend <- match.arg(backend)
 
   beta0  <- par.list$beta0
@@ -849,7 +848,7 @@ mstep_species_pars <- function(
       weights_stack[idx] <- tau[j, k]
     }
 
-    if (psi2 == 0) {
+    if (psi2 == 0 & use.glm.fit.when.unpenalised) {
       fit <- stats::glm.fit(
         x = X_stack,
         y = y_stack,
@@ -963,7 +962,7 @@ mstep_species_pars <- function(
 #' @keywords csam site mstep latent penalised
 #' @export
 mstep_site_scores <- function(Y, X, par.list, tau,
-                              family, psi1 = 0, maxit = 1, backend = c("C++", "R"), use.starts = FALSE) {
+                              family, psi1 = 0, maxit = 1, backend = c("C++", "R"), use.starts = FALSE, use.glm.fit.when.unpenalised = FALSE) {
   backend <- match.arg(backend)
 
   beta0  <- par.list$beta0
@@ -1009,7 +1008,7 @@ mstep_site_scores <- function(Y, X, par.list, tau,
       }
     }
 
-    if (psi1 == 0) {
+    if (psi1 == 0 & use.glm.fit.when.unpenalised) {
       fit <- stats::glm.fit(
         x = X_stack,
         y = y_stack,

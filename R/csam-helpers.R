@@ -185,7 +185,7 @@ penalised_glm_fit <- function(X, y, weights = NULL, offset = NULL,
 penalised_glm_fit_R <- function(X, y, weights = NULL, offset = NULL,
                                 penalty_weights = NULL, lambda = 0,
                                 family = gaussian(), start = NULL,
-                                maxit = 50, tol = 1e-6, verbose = FALSE) {
+                                maxit = 50, tol = 1e-8, verbose = FALSE) {
 
   n <- nrow(X)
   p <- ncol(X)
@@ -405,7 +405,7 @@ penalised_glm_fit_R <- function(X, y, weights = NULL, offset = NULL,
 penalised_glm_fit_C <- function(X, y, weights = NULL, offset = NULL,
                               penalty_weights = NULL, lambda = 0,
                               family = gaussian(), start = NULL,
-                              maxit = 50, tol = 1e-6
+                              maxit = 50, tol = 1e-8
 ) {
 
   n <- nrow(X)
@@ -441,7 +441,8 @@ penalised_glm_fit_C <- function(X, y, weights = NULL, offset = NULL,
   list(
     coefficients = res$coefficients,
     converged = res$converged,
-    iterations = res$iterations
+    iterations = res$iterations,
+    boundary = res$boundary
   )
 }
 
@@ -695,7 +696,16 @@ mstep_arch_pars <- function(Y, X, par.list, tau,
     #   family = family,
     #   control = list(maxit = maxit)
     # )
-    fit <- stats::glm.fit(
+    # fit <- stats::glm.fit(
+    #   x = X_stack,
+    #   y = y_stack,
+    #   weights = weights_stack,
+    #   start = if (use.starts) {B_new[k, ]} else {NULL},
+    #   offset = offset_stack,
+    #   family = family,
+    #   control = list(maxit = maxit)
+    # )
+    fit <- glm2::glm.fit2(
       x = X_stack,
       y = y_stack,
       weights = weights_stack,
@@ -849,7 +859,16 @@ mstep_species_pars <- function(
     }
 
     if (psi2 == 0 & use.glm.fit.when.unpenalised) {
-      fit <- stats::glm.fit(
+      # fit <- stats::glm.fit(
+      #   x = X_stack,
+      #   y = y_stack,
+      #   weights = weights_stack,
+      #   start = if (use.starts) {c(beta0_new[j], Lambda_new[j, ])} else {NULL},
+      #   offset = offset_stack,
+      #   family = family,
+      #   control = list(maxit = maxit)
+      # )
+      fit <- glm2::glm.fit2(
         x = X_stack,
         y = y_stack,
         weights = weights_stack,
@@ -1009,7 +1028,16 @@ mstep_site_scores <- function(Y, X, par.list, tau,
     }
 
     if (psi1 == 0 & use.glm.fit.when.unpenalised) {
-      fit <- stats::glm.fit(
+      # fit <- stats::glm.fit(
+      #   x = X_stack,
+      #   y = y_stack,
+      #   weights = weights_stack,
+      #   start = if (use.starts) {U_new[i, ]} else {NULL},
+      #   offset = offset_stack,
+      #   family = family,
+      #   control = list(maxit = maxit)
+      # )
+      fit <- glm2::glm.fit2(
         x = X_stack,
         y = y_stack,
         weights = weights_stack,

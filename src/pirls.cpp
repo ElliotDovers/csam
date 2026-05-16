@@ -63,6 +63,10 @@ extern "C" SEXP penalised_glm_irls_cpp(
     // ---- Mean & deviance at current beta ----
     double dev_old;
 
+    // penalty term to add to deviance
+    double penalty_old = lambda * (pen_w.array() * beta.array().square()).sum();
+
+
     if (family == 0) { // Poisson
       eta = eta.array().min(ETA_MAX).max(ETA_MIN);
       mu = eta.array().exp();
@@ -79,6 +83,10 @@ extern "C" SEXP penalised_glm_irls_cpp(
       Rcpp::stop("Family not implemented");
     }
 
+    // add penalty term
+    dev_old += penalty_old;
+
+    // add safety floor to derivative
     mu_eta = mu_eta.array().max(MU_ETA_FLOOR);
 
     // ---- IRLS weights and working response ----
@@ -97,6 +105,7 @@ extern "C" SEXP penalised_glm_irls_cpp(
 
     // ---- Deviance-based line search ----
     double dev_new = dev_old;  // initialise defensively
+    double penalty_new = penalty_old;  // initialise defensively
     double step = 1.0;
     VectorXd beta_new = beta;
     bool accepted = false;
@@ -105,6 +114,8 @@ extern "C" SEXP penalised_glm_irls_cpp(
 
       VectorXd beta_try = beta + step * (beta_full - beta);
       eta = X * beta_try + offset;
+
+      penalty_new = lambda * (pen_w.array() * beta_try.array().square()).sum();
 
       if (family == 0) {
         // --- Poisson ---
@@ -133,6 +144,9 @@ extern "C" SEXP penalised_glm_irls_cpp(
       } else {
         Rcpp::stop("Family not implemented in pirls.cpp");
       }
+
+      // add penalty term
+      dev_new += penalty_new;
 
       // ---- Accept only if deviance decreases ----
       if (dev_new <= dev_old) {

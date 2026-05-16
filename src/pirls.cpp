@@ -72,12 +72,14 @@ extern "C" SEXP penalised_glm_irls_cpp(
       mu = eta.array().exp();
       dev_old = poisson_deviance(y, mu);
       mu_eta = mu;
+      mu_eta = mu_eta.array().max(MU_ETA_FLOOR); // add safety floor to derivative
       var_mu = mu;
     } else if (family == 1) { // Binomial
       mu = 1.0 / (1.0 + (-eta.array()).exp());
       //mu = mu.array().max(MU_EPS).min(1.0 - MU_EPS); // numerical clip causes problems in the EM algorithm
       dev_old = binomial_deviance(y, mu);
       mu_eta = mu.array() * (1.0 - mu.array());
+      mu_eta = mu_eta.array().max(MU_ETA_FLOOR); // add safety floor to derivative
       var_mu = mu_eta;
     } else {
       Rcpp::stop("Family not implemented");
@@ -85,9 +87,6 @@ extern "C" SEXP penalised_glm_irls_cpp(
 
     // add penalty term
     dev_old += penalty_old;
-
-    // add safety floor to derivative
-    mu_eta = mu_eta.array().max(MU_ETA_FLOOR);
 
     // ---- IRLS weights and working response ----
     W = w.array() * mu_eta.array().square() / var_mu.array();
@@ -169,6 +168,13 @@ extern "C" SEXP penalised_glm_irls_cpp(
       converged = true;
       break;
     }
+    // double rel_change = std::abs(dev_old - dev_new) / (0.1 + std::abs(dev_new)); // this was to emulate glm.fit2 however, doesn't seem to work here
+    // if (rel_change < tol) {
+    //   beta = beta_new;
+    //   converged = true;
+    //   break;
+    // }
+
 
     beta = beta_new;
   }

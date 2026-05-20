@@ -1741,7 +1741,6 @@ mzll <- function(Y, X, par.list, g = 3, d = 2, family = poisson(),
   pll
 }
 
-
 #' Calculate the fitted values of a CSAM/SAM, \eqn{\mu_{ijk}}, and compute the posterior predictive mean (internal)
 #'
 #' @keywords internal
@@ -1963,6 +1962,176 @@ se_csam <- function(object, U.random = TRUE, which.pars = NULL) {
   }
 
   return(out)
+}
+
+#' standard error using sandwich estimator for csam
+#'
+#' Computes standard errors for all model parameters in a fitted `"csam"` object using TMB's sdreport function.
+#'
+#' The fitted `csam` object **must** contain `Y`, `X`, and the penalty values
+#' `psi1` and `psi2` (these are inferred from the object).
+#'
+#' @param object A fitted object of class `"csam"` (must contain `Y`, `X`,
+#'   `psi1`, and `psi2`)..
+#' @param U.random Logical; indicating whether to treat site effects as fixed or random when using \code{method = "tmb"}.
+#' @param which.pars Character; of parameter group name(s) to be returned. Must be a subset of the canonical parameters of a CSAM TMB fit.
+#'
+#' @return A two column data frame of estimates and corresponding standard errors
+#'
+#' @examples
+#' \dontrun{
+#' fit <- csam(Y, X, g = 2, d = 1, family = poisson(), trace = TRUE)
+#' fit$Y <- Y; fit$X <- X
+#' # csam now stores psi1 and psi2 internally
+#' V_louis <- vcov(fit, method = "louis")
+#' }
+#'
+#' @export
+#'
+#' @importFrom TMB sdreport MakeADFun
+se_csam_sw <- function(object, which.pars = NULL) {
+  n <- nrow(object$Y)
+  s <- ncol(object$Y)
+  g <- nrow(object$B)
+
+  # determine if the model is a vanilla SAM
+  vanilla.sam <- is.null(object$Lambda)
+
+  # set up required data list for the AD function
+  data.list_bread <- list(
+    Y = object$Y,
+    X = object$X,
+    psi1 = if (!is.null(object$Lambda)) { object$psi1 } else { 0 },
+    psi2 = if (!is.null(object$Lambda)) { object$psi2 } else { 0 },
+    family = switch(object$family$family,
+                    poisson = 0,
+                    binomial = 1,
+                    gaussian = 2),  # 0=Poisson, 1=Binomial, 2=Gaussian,...
+    lik_type = 0
+  )
+  # set up required parameter list for the AD function
+  par.list_bread = object$par.list
+  par.list_bread$logit_pi = stats::binomial()$linkfun(object$par.list$pi[-g])
+  par.list_bread$pi = NULL
+  par.list_bread$log_phi = log(object$par.list$phi)
+  par.list_bread$phi = NULL
+
+  # create the mapping of parameters according to family
+  mapping_bread = list()
+  if (object$family$family %in% c("binomial", "poisson")) {
+    mapping_bread$log_phi = factor(rep(NA, s))
+  }
+  # adjust inputs according to if the model is a vanilla SAM
+  if (is.null(object$Lambda)) {
+    par.list_bread$Lambda = matrix(rep(0, s), s, 1)
+    par.list_bread$U <- matrix(rep(0, n), n, 1)
+    mapping_bread$U = factor(rep(NA, n * 1))
+    mapping_bread$Lambda = factor(rep(NA, s * 1))
+  }
+
+  obj_bread <- TMB::MakeADFun(
+    data = data.list_bread,
+    parameters = par.list_bread,
+    DLL = "csam", map = mapping_bread,
+    silent = TRUE
+  )
+
+  H = obj_bread$he()
+  bread = solve(H)
+
+  # get the indices of the parameters as appearing in the Hessian
+  idx <- 1:length(obj_bread$par)
+  names(idx) <- names(obj_bread$par)
+  idx.list <- lapply(split(idx, names(idx)), unname)
+  # adjust the parameters that occur in matrices
+  idx.list$B <- matrix(idx.list$B, nrow = g)
+  idx.list$Lambda <- matrix(idx.list$Lambda, nrow = s, ncol = d)
+  idx.list$U <- matrix(idx.list$U, nrow = n, ncol = d)
+
+  # work out the meat of the sandwich estimator
+
+  # # calculate the length of theta for a particular species
+  # par.list_init <- list(
+  #   beta0    = object$beta0[1],
+  #   B        = object$B,
+  #   logit_pi = binomial()$linkfun(object$pi[1:(g - 1)]),
+  #   U        = object$U,
+  #   Lambda   = matrix(object$Lambda[1, ], nrow = 1),
+  #   log_phi  = object$phi[1]  # only used for Gaussian/Gamma/NB
+  # )
+  # if (object$family$family %in% c("binomial", "poisson")) {
+  #   par.list_init <- par.list_init[-length(par.list_init)]
+  # }
+  #
+  # len_theta_sp = length(unlist(par.list_init))
+
+
+  # need to do this for each species
+  S <- matrix(NA, nrow = nrow(bread), ncol = s)
+  for (j in 1:s) {
+
+    dat.list_meat <- list(
+      Y = as.matrix(object$Y[ , j]),
+      X =  as.matrix(object$X),
+      psi1 = 0,
+      psi2 = 0,
+      family = switch(object$family$family,
+                      poisson = 0,
+                      binomial = 1,
+                      gaussian = 2),
+      lik_type = 0
+    )
+
+    par.list_meat = list(
+      beta0    = object$beta0[j],
+      B        = object$B,
+      logit_pi = binomial()$linkfun(object$pi[1:(g - 1)]),
+      U        = object$U,
+      Lambda   = matrix(object$Lambda[j, ], nrow = 1),
+      log_phi  = object$phi[j]  # only used for Gaussian/Gamma/NB
+    )
+
+    # create the mapping of parameters according to family
+    mapping_meat = list()
+    if (object$family$family %in% c("binomial", "poisson")) {
+      mapping_meat$log_phi = factor(rep(NA, 1))
+    }
+
+    obj_meat <- TMB::MakeADFun(
+      data = dat.list_meat,
+      parameters = par.list_meat,
+      DLL = "csam", map = mapping_meat,
+      silent = TRUE
+    )
+
+    S_j <- as.vector(obj_meat$gr())
+
+    tmp.idx <- c(idx.list$beta0[j], as.vector(idx.list$B), idx.list$logit_pi, as.vector(idx.list$U), as.vector(idx.list$Lambda[j, ]), idx.list$logphi)
+    S[tmp.idx, j] <- S_j
+    rm(tmp.idx, dat.list_meat, par.list_meat, mapping_meat, obj_meat)
+  }
+
+  # put zeroes in for the NA values
+  S[is.na(S)] <- 0
+  # make sparse before computing meat
+  S <- methods::as(S, "sparseMatrix")
+
+  # compute the meat
+  meat = tcrossprod(S)
+
+  # compute the covariance matrix
+  cov.mat = bread %*% meat %*% bread
+  se <- sqrt(diag(as.matrix(cov.mat)))
+  se[names(obj_bread$par) == which.pars]
+
+  if (!is.null(which.pars)) {
+    if (!all(which.pars %in% c("beta0", "B", "logit_pi", "Lambda", "U", "log_phi"))) {
+      stop(paste0(which.pars[!which.pars %in% c("beta0", "B", "logit_pi", "Lambda", "U", "log_phi")], " not found in canonical TMB parameters"))
+    }
+    se <- se[names(obj_bread$par) == which.pars]
+  }
+
+  return(se)
 }
 
 #' Impose constraints on the factor scores and loadings

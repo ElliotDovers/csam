@@ -97,10 +97,29 @@ extern "C" SEXP penalised_glm_irls_cpp(
     XtWX.diagonal().array() += lambda * pen_w.array();
     VectorXd XtWz = X.transpose() * (W.array() * z.array()).matrix();
 
-    Eigen::LLT<MatrixXd> llt(XtWX);
-    if (llt.info() != Eigen::Success) break;
+    VectorXd beta_full;
+    bool solved = false;
 
-    VectorXd beta_full = llt.solve(XtWz);
+    // ---- Try Cholesky (fast path) ----
+    Eigen::LLT<MatrixXd> llt(XtWX);
+    if (llt.info() == Eigen::Success) {
+      beta_full = llt.solve(XtWz);
+      solved = true;
+    }
+
+    // ---- Fallback: QR decomposition ----
+    if (!solved) {
+      Eigen::ColPivHouseholderQR<MatrixXd> qr(XtWX);
+      if (qr.info() == Eigen::Success) {
+        beta_full = qr.solve(XtWz);
+      }
+    }
+
+    // ---- Final safeguard ----
+    if (!solved) {
+      // Could not solve system reliably
+      break;
+    }
 
     // ---- Deviance-based line search ----
     double dev_new = dev_old;  // initialise defensively

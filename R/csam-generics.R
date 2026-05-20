@@ -39,7 +39,7 @@
 #'
 #' @exportS3Method graphics::plot csam
 plot.csam <- function(x,
-                      param = c("pll", "B", "beta0", "pi", "U", "Lambda", "phi", "cor"),
+                      param = c("pll", "B", "beta0", "pi", "U", "Lambda", "phi", "tau", "cor"),
                       truth = NULL,
                       ylim = NULL,
                       ...) {
@@ -282,7 +282,44 @@ plot.csam <- function(x,
   }
 
   # -----------------------------
-  # 8. Correlation matrix induced by Lambda
+  # 8. tau (n x g)
+  # -----------------------------
+  if (param == "tau") {
+    tau_list <- tr$tau
+    s <- nrow(x$tau)
+    g <- ncol(x$tau)
+
+    op <- par(mfrow = c(g, 1), mar = c(4, 4, 3, 1))
+    on.exit(par(op), add = TRUE)
+
+    for (h in 1:d) {
+      mat_h <- t(sapply(tau_list, function(tau) tau[, h]))
+      cols <- colfun(s)
+
+      truth_vals <- if (!is.null(truth)) truth$tau[, h] else NULL
+      ylims <- compute_ylim(mat_h, truth_vals, ylim)
+
+      plot(mat_h[, 1], type = "l", col = cols[1], lwd = 1,
+           xlab = "Iteration", ylab = paste0("tau[,", h, "]"),
+           main = paste0("ECM Trace: posterior prob. archetype", h),
+           ylim = ylims)
+
+      for (j in 2:s) lines(mat_h[, j], col = cols[j], lwd = 1)
+
+      if (!is.null(truth_vals)) {
+        for (j in 1:s) abline(h = truth_vals[j], col = cols[j], lty = 2)
+      }
+
+      legend("topright",
+             legend = paste0("tau[", 1:s, ",", h, "]"),
+             col = cols, lwd = 1, cex = 0.5)
+    }
+
+    return(invisible())
+  }
+
+  # -----------------------------
+  # 9. Correlation matrix induced by Lambda
   # -----------------------------
   if (param == "cor") {
 

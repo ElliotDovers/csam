@@ -10,7 +10,8 @@ init.fa.pars(
   g = 3,
   family = poisson(),
   d = 2,
-  fa.method = c("svd", "prcomp", "qr", "fa", "glmmTMB", "gllvm")
+  fa.method = c("svd", "prcomp", "qr", "fa", "glmmTMB", "gllvm"),
+  update.intercepts = TRUE
 )
 }
 \arguments{

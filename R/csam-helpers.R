@@ -1447,7 +1447,7 @@ hessian_complete <- function(object) {
 #' @export
 #'
 #' @importFrom stats kmeans glm.fit
-init.sam.pars <- function(Y, X, g = 3, family = poisson()) {
+init.sam.pars <- function(Y, X, g = 3, family = poisson(), update.intercepts = FALSE) {
 
   n <- nrow(Y); s <- ncol(Y); p <- ncol(X)
 
@@ -1458,7 +1458,7 @@ init.sam.pars <- function(Y, X, g = 3, family = poisson()) {
   beta0.init = vector("numeric", s)
   beta1.init = matrix(rep(0, s * p), s, p)
   for (sp in 1:s) {
-    tmp.m = glm.fit(x = cbind(rep(1, nrow(X)), X), y = Y[,sp], family = family)
+    tmp.m = stats::glm.fit(x = cbind(rep(1, nrow(X)), X), y = Y[,sp], family = family)
     beta0.init[sp] = tmp.m$coefficients[1]
     beta1.init[sp, ] = tmp.m$coefficients[2:(p + 1)]
   }
@@ -1469,6 +1469,15 @@ init.sam.pars <- function(Y, X, g = 3, family = poisson()) {
   start.pars$pi = prop.table(table(clust$cluster))
 
   attr(start.pars, "sp clust") = clust$clust
+
+  if (update.intercepts) {
+    for (sp in 1:s) {
+      tmp.offset = X %*% start.pars$B[attr(start.pars,"sp clust")[sp], ]
+      tmp.m = stats::glm.fit(y = Y[,sp], x = matrix(1, nrow = nrow(X), ncol = 1), family = family, offset = tmp.offset)
+      start.pars$beta0[sp] = tmp.m$coefficients
+    }
+  }
+
   start.pars
 }
 

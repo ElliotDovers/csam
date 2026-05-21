@@ -14,7 +14,7 @@ penalised_glm_fit_R(
   family = gaussian(),
   start = NULL,
   maxit = 50,
-  tol = 1e-06,
+  tol = 1e-08,
   verbose = FALSE
 )
 }

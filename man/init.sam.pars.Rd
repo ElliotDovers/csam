@@ -4,7 +4,7 @@
 \alias{init.sam.pars}
 \title{Initialise starting values for Species Archetype Models}
 \usage{
-init.sam.pars(Y, X, g = 3, family = poisson())
+init.sam.pars(Y, X, g = 3, family = poisson(), update.intercepts = FALSE)
 }
 \arguments{
 \item{Y}{A numeric response matrix with \eqn{n} rows (sites) and \eqn{s}

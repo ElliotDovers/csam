@@ -6,7 +6,7 @@
 \usage{
 \method{plot}{csam}(
   x,
-  param = c("pll", "B", "beta0", "pi", "U", "Lambda", "phi", "cor"),
+  param = c("pll", "B", "beta0", "pi", "U", "Lambda", "phi", "tau", "cor"),
   truth = NULL,
   ylim = NULL,
   ...

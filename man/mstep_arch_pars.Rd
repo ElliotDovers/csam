@@ -4,7 +4,7 @@
 \alias{mstep_arch_pars}
 \title{M-step: update archetype (archetype-level) regression coefficients for CSAM}
 \usage{
-mstep_arch_pars(Y, X, par.list, tau, family, maxit = 1)
+mstep_arch_pars(Y, X, par.list, tau, family, maxit = 1, use.starts = FALSE)
 }
 \arguments{
 \item{Y}{numeric matrix of species responses with \eqn{n} rows (sites) and

@@ -13,7 +13,7 @@ csam(
   psi1 = 0,
   psi2 = 0,
   max_iter = 100,
-  tol = 1e-06,
+  tol = 0.001,
   verbose = TRUE,
   start = NULL,
   maxit_step1 = 5,
@@ -22,7 +22,11 @@ csam(
   trace = TRUE,
   backend = c("C++", "R"),
   constrain = FALSE,
-  inner.constrain = FALSE
+  inner.constrain = FALSE,
+  starts.at.steps = FALSE,
+  trunc.tau.until.iter = 2,
+  project.loadings = FALSE,
+  use.glm.fit.when.unpenalised = FALSE
 )
 }
 \arguments{

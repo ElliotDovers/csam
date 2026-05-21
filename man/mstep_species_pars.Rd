@@ -12,7 +12,9 @@ mstep_species_pars(
   family,
   psi2 = 0,
   maxit = 1,
-  backend = c("C++", "R")
+  backend = c("C++", "R"),
+  use.starts = FALSE,
+  use.glm.fit.when.unpenalised = FALSE
 )
 }
 \arguments{

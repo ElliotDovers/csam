@@ -1997,7 +1997,9 @@ se_csam <- function(object, U.random = TRUE, which.pars = NULL) {
 #'
 #' @export
 #'
-#' @importFrom TMB sdreport MakeADFun
+#' @importFrom TMB MakeADFun
+#' @importFrom Matrix tcrossprod
+#' @importFrom methods as
 se_csam_sw <- function(object, which.pars = NULL) {
   n <- nrow(object$Y)
   s <- ncol(object$Y)
@@ -2126,7 +2128,7 @@ se_csam_sw <- function(object, which.pars = NULL) {
   S <- methods::as(S, "sparseMatrix")
 
   # compute the meat
-  meat = tcrossprod(S)
+  meat = Matrix::tcrossprod(S)
 
   # compute the covariance matrix
   cov.mat = bread %*% meat %*% bread

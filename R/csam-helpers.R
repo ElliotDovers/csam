@@ -2048,7 +2048,35 @@ se_csam_sw <- function(object, which.pars = NULL) {
   )
 
   H = obj_bread$he()
-  bread = solve(H)
+
+  # Try and use a standard solve for inverting Hessian
+  solve.type = 0
+  try(assign("bread", solve(H)))
+  # If that doesn't work try a robust approach
+  if (!exists("bread")) {
+    H <- (H + t(H)) / 2
+    e <- eigen(H, symmetric = TRUE)
+
+    # Condition-based cutoff
+    cutoff <- 1e-8 * max(abs(e$values))
+
+    d_inv <- ifelse(abs(e$values) > cutoff, 1 / e$values, 0)
+
+    bread <- e$vectors %*% diag(d_inv) %*% t(e$vectors)
+    solve.type = 1
+  }
+  # if (!exists("bread")) {
+  #   H <- (H + t(H)) / 2
+  #   e <- eigen(H, symmetric = TRUE)
+  #
+  #   # Condition-based cutoff
+  #   cutoff <- 1e-8 * max(abs(e$values))
+  #
+  #   d_inv <- ifelse(abs(e$values) > cutoff, 1 / e$values, 0)
+  #
+  #   bread <- e$vectors %*% diag(d_inv) %*% t(e$vectors)
+  #   solve.type = 2
+  # }
 
   # get the indices of the parameters as appearing in the Hessian
   idx <- 1:length(obj_bread$par)
@@ -2141,6 +2169,7 @@ se_csam_sw <- function(object, which.pars = NULL) {
     }
     se <- se[names(obj_bread$par) == which.pars]
   }
+  attr(se, "solve.type") = solve.type
 
   return(se)
 }

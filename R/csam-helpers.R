@@ -1168,7 +1168,10 @@ mstep0_arch_pars <- function(Y, X, par.list, tau,
       control = list(maxit = maxit)
     ))
 
-    B_new[k, ] <- fit$coefficients
+    if (exists("fit")) {
+      B_new[k, ] <- fit$coefficients
+    }
+
   }
 
   B_new
@@ -1218,8 +1221,10 @@ mstep0_species_pars <- function(Y, X, par.list, tau,
       control = list(maxit = maxit)
     ))
 
-    coef_j <- fit$coefficients
-    beta0_new[j] <- coef_j[1]
+    if (exists("fit")) {
+      coef_j <- fit$coefficients
+      beta0_new[j] <- coef_j[1]
+    }
 
     if (family$family == "gaussian") {
       mu <- fit$mu

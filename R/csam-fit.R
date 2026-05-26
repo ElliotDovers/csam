@@ -421,7 +421,7 @@ csam <- function(Y, X, g = 3, d = 2, family = poisson(),
 #'
 #' @export
 sam <- function(Y, X, g = 3, family = poisson(),
-                max_iter = 100, tol = 1e-6,
+                max_iter = 100, tol = 1e-3,
                 verbose = TRUE, start = NULL,
                 maxit_step1 = 5, maxit_step2 = 5,
                 #first_maxit_step1 = 50, first_maxit_step2 = 50,

@@ -1553,8 +1553,8 @@ init.fa.pars <- function(Y, X, g = 3, family = poisson(), d = 2, fa.method = c("
 
   # with hard class labelling:
   res = matrix(rep(0, n * s), n, s)
-  for (sp in 1:s) {
-    if (family$family == "binomial") {
+  if (family$family == "binomial") {
+    for (sp in 1:s) {
       if (update.intercepts) {
         tmp.offset = X %*% start.pars$B[attr(start.pars,"sp clust")[sp], ]
         tmp.m = stats::glm(y ~ 1, data = data.frame(y = Y[,sp]), family = family, offset = tmp.offset)
@@ -1563,8 +1563,14 @@ init.fa.pars <- function(Y, X, g = 3, family = poisson(), d = 2, fa.method = c("
         tmp.offset = start.pars$beta0[sp] + X %*% start.pars$B[attr(start.pars,"sp clust")[sp], ]
         tmp.m = stats::glm(y ~ 0, data = data.frame(y = Y[,sp]), family = family, offset = tmp.offset)
       }
-      res[ , sp] = DHARMa:::residuals.DHARMa(DHARMa::simulateResiduals(tmp.m), quantileFunction = qnorm)
-    } else {
+      res[ , sp] = DHARMa:::residuals.DHARMa(DHARMa::simulateResiduals(tmp.m))
+    }
+    # remove boundaries that result in infinite residuals
+    res[res == 1] = 1 -.Machine$double.eps
+    res[res == 0] = .Machine$double.eps
+    res = qnorm(res)
+  } else {
+    for (sp in 1:s) {
       tmp.offset = X %*% start.pars$B[attr(start.pars,"sp clust")[sp], ]
       tmp.m = glmmTMB::glmmTMB(y ~ 1, data = data.frame(y = Y[,sp]), family = family, offset = tmp.offset)
       if (update.intercepts) {
@@ -1572,11 +1578,35 @@ init.fa.pars <- function(Y, X, g = 3, family = poisson(), d = 2, fa.method = c("
       }
       res[ , sp] = glmmTMB:::residuals.glmmTMB(tmp.m, type = "dunn-smyth")
     }
-    # res[ , sp] = glmmTMB:::residuals.glmmTMB(tmp.m, type = "dunn-smyth") # CON: uses an unexported function, throws error for binomial, requires glmmTMB() rather than glm() above
-    # res[ , sp] = DHARMa:::residuals.DHARMa(DHARMa::simulateResiduals(tmp.m), quantileFunction = qnorm) # CON: uses a non-exported function
-    # res[ , sp] = DHARMa::simulateResiduals(tmp.m)$scaledResiduals
-    # res[ , sp] = statmod::qresiduals(tmp.m) # CON: leads to Inf/-Inf values
   }
+  # for (sp in 1:s) {
+  #   if (family$family == "binomial") {
+  #     if (update.intercepts) {
+  #       tmp.offset = X %*% start.pars$B[attr(start.pars,"sp clust")[sp], ]
+  #       tmp.m = stats::glm(y ~ 1, data = data.frame(y = Y[,sp]), family = family, offset = tmp.offset)
+  #       start.pars$beta0[sp] = tmp.m$coefficients
+  #     } else {
+  #       tmp.offset = start.pars$beta0[sp] + X %*% start.pars$B[attr(start.pars,"sp clust")[sp], ]
+  #       tmp.m = stats::glm(y ~ 0, data = data.frame(y = Y[,sp]), family = family, offset = tmp.offset)
+  #     }
+  #     res[ , sp] = DHARMa:::residuals.DHARMa(DHARMa::simulateResiduals(tmp.m))
+  #     # remove boundaries that result in infinite residuals
+  #     res[res == 1] = 1 -.Machine$double.eps
+  #     res[res == 0] = .Machine$double.eps
+  #     res = qnorm(res)
+  #   } else {
+  #     tmp.offset = X %*% start.pars$B[attr(start.pars,"sp clust")[sp], ]
+  #     tmp.m = glmmTMB::glmmTMB(y ~ 1, data = data.frame(y = Y[,sp]), family = family, offset = tmp.offset)
+  #     if (update.intercepts) {
+  #       start.pars$beta0[sp] = tmp.m$fit$par
+  #     }
+  #     res[ , sp] = glmmTMB:::residuals.glmmTMB(tmp.m, type = "dunn-smyth")
+  #   }
+  #   # res[ , sp] = glmmTMB:::residuals.glmmTMB(tmp.m, type = "dunn-smyth") # CON: uses an unexported function, throws error for binomial, requires glmmTMB() rather than glm() above
+  #   # res[ , sp] = DHARMa:::residuals.DHARMa(DHARMa::simulateResiduals(tmp.m), quantileFunction = qnorm) # CON: uses a non-exported function
+  #   # res[ , sp] = DHARMa::simulateResiduals(tmp.m)$scaledResiduals
+  #   # res[ , sp] = statmod::qresiduals(tmp.m) # CON: leads to Inf/-Inf values
+  # }
 
   # # with weights for each archetype:
   # res = matrix(rep(0, n * s * g), n * g, s)
@@ -1638,11 +1668,10 @@ init.fa.pars <- function(Y, X, g = 3, family = poisson(), d = 2, fa.method = c("
     start.pars$Lambda = unname(coef(tmp.fa)$Species.scores)
   } else if (fa.method == "svd") {
 
-    M <- svd(res)
-    D_half <- diag(sqrt(M$d[1:d]))
+    M <- svd(res, d, d)
 
-    start.pars$Lambda <- M$v[, 1:d] %*% D_half
-    start.pars$U <- M$u[, 1:d] %*% solve(D_half)
+    start.pars$Lambda <- M$v %*% diag(sqrt(M$d[1:d]))
+    start.pars$U <- M$u %*% diag(1 / sqrt(M$d[1:d]))
 
 
   } else if (fa.method == "qr") {
@@ -2000,6 +2029,7 @@ se_csam <- function(object, U.random = TRUE, which.pars = NULL) {
 #' @importFrom TMB MakeADFun
 #' @importFrom Matrix tcrossprod
 #' @importFrom methods as
+#' @importFrom MASS ginv
 se_csam_sw <- function(object, which.pars = NULL) {
   n <- nrow(object$Y)
   s <- ncol(object$Y)
@@ -2053,30 +2083,22 @@ se_csam_sw <- function(object, which.pars = NULL) {
   solve.type = 0
   try(assign("bread", solve(H)))
   # If that doesn't work try a robust approach
-  if (!exists("bread")) {
-    H <- (H + t(H)) / 2
-    e <- eigen(H, symmetric = TRUE)
-
-    # Condition-based cutoff
-    cutoff <- 1e-8 * max(abs(e$values))
-
-    d_inv <- ifelse(abs(e$values) > cutoff, 1 / e$values, 0)
-
-    bread <- e$vectors %*% diag(d_inv) %*% t(e$vectors)
-    solve.type = 1
-  }
   # if (!exists("bread")) {
-  #   H <- (H + t(H)) / 2
+  #   # H <- (H + t(H)) / 2
   #   e <- eigen(H, symmetric = TRUE)
   #
   #   # Condition-based cutoff
-  #   cutoff <- 1e-8 * max(abs(e$values))
+  #   cutoff <- .Machine$double.eps * max(abs(e$values))
   #
   #   d_inv <- ifelse(abs(e$values) > cutoff, 1 / e$values, 0)
   #
   #   bread <- e$vectors %*% diag(d_inv) %*% t(e$vectors)
-  #   solve.type = 2
+  #   solve.type = 1
   # }
+  if (!exists("bread")) {
+    bread <- MASS::ginv(H, tol = .Machine$double.eps)
+    solve.type = 1
+  }
 
   # get the indices of the parameters as appearing in the Hessian
   idx <- 1:length(obj_bread$par)
@@ -2089,22 +2111,6 @@ se_csam_sw <- function(object, which.pars = NULL) {
 
   # work out the meat of the sandwich estimator
 
-  # # calculate the length of theta for a particular species
-  # par.list_init <- list(
-  #   beta0    = object$beta0[1],
-  #   B        = object$B,
-  #   logit_pi = binomial()$linkfun(object$pi[1:(g - 1)]),
-  #   U        = object$U,
-  #   Lambda   = matrix(object$Lambda[1, ], nrow = 1),
-  #   log_phi  = object$phi[1]  # only used for Gaussian/Gamma/NB
-  # )
-  # if (object$family$family %in% c("binomial", "poisson")) {
-  #   par.list_init <- par.list_init[-length(par.list_init)]
-  # }
-  #
-  # len_theta_sp = length(unlist(par.list_init))
-
-
   # need to do this for each species
   S <- matrix(NA, nrow = nrow(bread), ncol = s)
   for (j in 1:s) {
@@ -2112,8 +2118,8 @@ se_csam_sw <- function(object, which.pars = NULL) {
     dat.list_meat <- list(
       Y = as.matrix(object$Y[ , j]),
       X =  as.matrix(object$X),
-      psi1 = 0,
-      psi2 = 0,
+      psi1 = if (!is.null(object$Lambda)) { object$psi1 } else { 0 },
+      psi2 = if (!is.null(object$Lambda)) { object$psi2 } else { 0 },
       family = switch(object$family$family,
                       poisson = 0,
                       binomial = 1,
@@ -2159,17 +2165,21 @@ se_csam_sw <- function(object, which.pars = NULL) {
   meat = Matrix::tcrossprod(S)
 
   # compute the covariance matrix
-  cov.mat = bread %*% meat %*% bread
+  cov.mat <- bread %*% meat %*% bread
   se <- sqrt(diag(as.matrix(cov.mat)))
-  se[names(obj_bread$par) == which.pars]
+
+  # also compute the original standard errors for reference
+  se_og <-  sqrt(diag(as.matrix(bread)))
 
   if (!is.null(which.pars)) {
     if (!all(which.pars %in% c("beta0", "B", "logit_pi", "Lambda", "U", "log_phi"))) {
       stop(paste0(which.pars[!which.pars %in% c("beta0", "B", "logit_pi", "Lambda", "U", "log_phi")], " not found in canonical TMB parameters"))
     }
     se <- se[names(obj_bread$par) == which.pars]
+    se_og <- se_og[names(obj_bread$par) == which.pars]
   }
   attr(se, "solve.type") = solve.type
+  attr(se, "og") = se_og
 
   return(se)
 }

@@ -688,3 +688,83 @@ confint.csam <- function(object,
 
   ret
 }
+
+#' Akaike's An Information Criterion
+#'
+#' S3 method for the base `stats::AIC` generic that computes AIC for a fitted `"csam"` object
+#' If the penalty values `psi1` and `psi2`...
+#'
+#' @param object A fitted object of class `"csam"` (must contain `Y`, `X`,
+#'   `psi1`, and `psi2`).
+#' @param ... Currently unused.
+#' @param k numeric, the penalty per parameter to be used; the default k = 2 is the classical AIC.
+#'
+#' @return A numeric value indicating the information criterion
+#'
+#' @examples
+#' \dontrun{
+#' fit <- csam(Y, X, g = 2, d = 1, family = poisson(), trace = TRUE)
+#' fit.aic <- AIC(fit)
+#' }
+#'
+#' @exportS3Method stats::AIC csam
+AIC.csam <- function(object,
+                      ..., k = 2) {
+  # get the number of parameters
+  n.pars <- length(unlist(object$par.list))
+
+  # get the model's likelihood
+  ll <- object$penalised_loglik
+  # adjust the likelihood if penalties are present
+  if (!is.null(object$psi1)) {
+    ll + (0.5 * object$psi1 * sum(object$U^2))
+  }
+  if (!is.null(object$psi2)) {
+    ll + (0.5 * object$psi2 * sum(object$Lambda^2))
+  }
+
+  out <- 2 * n.pars - 2 * ll
+
+  return(out)
+}
+
+#' Bayesian Information Criterion
+#'
+#' S3 method for the base `stats::BIC` generic that computes BIC for a fitted `"csam"` object
+#' If the penalty values `psi1` and `psi2`...
+#'
+#' @param object A fitted object of class `"csam"` (must contain `Y`, `X`,
+#'   `psi1`, and `psi2`).
+#' @param ... Currently unused.
+#'
+#' @return A numeric value indicating the information criterion
+#'
+#' @examples
+#' \dontrun{
+#' fit <- csam(Y, X, g = 2, d = 1, family = poisson(), trace = TRUE)
+#' fit.aic <- BIC(fit)
+#' }
+#'
+#' @exportS3Method stats::BIC csam
+BIC.csam <- function(object,
+                     ...) {
+  # get the number of parameters
+  n.pars <- length(unlist(object$par.list))
+
+  # for sample size, use # species as in SAMs literature (what is being mixed on)
+  n.data <- ncol(object$Y)
+
+  # get the model's likelihood
+  ll <- object$penalised_loglik
+  # adjust the likelihood if penalties are present
+  if (!is.null(object$psi1)) {
+    ll + (0.5 * object$psi1 * sum(object$U^2))
+  }
+  if (!is.null(object$psi2)) {
+    ll + (0.5 * object$psi2 * sum(object$Lambda^2))
+  }
+
+  out <- log(n.data) * n.pars - 2 * ll
+
+  return(out)
+}

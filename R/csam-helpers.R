@@ -715,11 +715,16 @@ mstep_arch_pars <- function(Y, X, par.list, tau,
       control = list(maxit = maxit)
     )
 
-    if (is.null(fit$coefficients) || any(is.na(fit$coefficients))) {
-      warning(sprintf("glm.fit failed for archetype %d; leaving B[k,] unchanged", k))
+    if (exists("fit")) {
+      if (is.null(fit$coefficients) || any(is.na(fit$coefficients)) || !all(is.finite(fit$coefficients))) {
+        warning(sprintf("glm.fit failed for archetype %d; leaving B[k,] unchanged", k))
+      } else {
+        B_new[k, ] <- fit$coefficients
+      }
     } else {
-      B_new[k, ] <- fit$coefficients
+      warning(sprintf("glm.fit failed for archetype %d; leaving B[k,] unchanged", k))
     }
+
 
     # fit <- suppressWarnings(stats::glm.fit(
     #   x = X_stack,
@@ -892,15 +897,21 @@ mstep_species_pars <- function(
       )
     }
 
-    if (all(is.finite(fit$coefficients))) {
-      beta0_new[j]    <- fit$coefficients[1]
-      Lambda_new[j, ] <- fit$coefficients[-1]
+    if (exists("fit")) {
+      if (is.null(fit$coefficients) || any(is.na(fit$coefficients)) || !all(is.finite(fit$coefficients))) {
+        warning(sprintf("(P-)IRLS failed for species %d; leaving parameters unchanged", j))
+      } else {
+        beta0_new[j]    <- fit$coefficients[1]
+        Lambda_new[j, ] <- fit$coefficients[-1]
+        if (family$family == "gaussian") {
+          phi_new[j] <- sum(weights_stack * (y_stack - fit$mu)^2) /
+            sum(weights_stack)
+        }
+      }
+    } else {
+      warning(sprintf("(P-)IRLS failed for species %d; leaving parameters unchanged", j))
     }
 
-    if (family$family == "gaussian") {
-      phi_new[j] <- sum(weights_stack * (y_stack - fit$mu)^2) /
-        sum(weights_stack)
-    }
   }
 
   list(beta0 = beta0_new, Lambda = Lambda_new, phi = phi_new)
@@ -1061,15 +1072,16 @@ mstep_site_scores <- function(Y, X, par.list, tau,
       )
     }
 
-    if (!is.null(fit$coefficients) &&
-        all(is.finite(fit$coefficients))) {
-      U_new[i, ] <- fit$coefficients
+    if (exists("fit")) {
+      if (is.null(fit$coefficients) || any(is.na(fit$coefficients)) || !all(is.finite(fit$coefficients))) {
+        warning(sprintf("(P-)IRLS failed for site %d; leaving U[i, ] unchanged", i))
+      } else {
+        U_new[i, ] <- fit$coefficients
+      }
     } else {
-      warning(sprintf(
-        "penalised_glm_fit failed for site %d; leaving U[i, ] unchanged",
-        i
-      ))
+      warning(sprintf("(P-)IRLS failed for site %d; leaving U[i, ] unchanged", i))
     }
+
   }
 
   U_new
@@ -1158,15 +1170,23 @@ mstep0_arch_pars <- function(Y, X, par.list, tau,
       weights_stack[idx] <- tau[j, k]
     }
 
-    # note suppressWarnings removes non-convergence as we are typically using only a single iteration
-    fit <- suppressWarnings(stats::glm.fit(
+    # # note suppressWarnings removes non-convergence as we are typically using only a single iteration
+    # fit <- suppressWarnings(stats::glm.fit(
+    #   x = X_stack,
+    #   y = y_stack,
+    #   weights = weights_stack,
+    #   offset = offset_stack,
+    #   family = family,
+    #   control = list(maxit = maxit)
+    # ))
+    fit <- stats::glm.fit(
       x = X_stack,
       y = y_stack,
       weights = weights_stack,
       offset = offset_stack,
       family = family,
       control = list(maxit = maxit)
-    ))
+    )
 
     if (exists("fit")) {
       B_new[k, ] <- fit$coefficients
@@ -1211,15 +1231,23 @@ mstep0_species_pars <- function(Y, X, par.list, tau,
       weights_stack[idx] <- tau[j, k]
     }
 
-    # note suppressWarnings removes non-convergence as we are typically using only a single iteration
-    fit <- suppressWarnings(stats::glm.fit(
+    # # note suppressWarnings removes non-convergence as we are typically using only a single iteration
+    # fit <- suppressWarnings(stats::glm.fit(
+    #   x = X_stack,
+    #   y = y_stack,
+    #   weights = weights_stack,
+    #   offset = offset_stack,
+    #   family = family,
+    #   control = list(maxit = maxit)
+    # ))
+    fit <- stats::glm.fit(
       x = X_stack,
       y = y_stack,
       weights = weights_stack,
       offset = offset_stack,
       family = family,
       control = list(maxit = maxit)
-    ))
+    )
 
     if (exists("fit")) {
       coef_j <- fit$coefficients

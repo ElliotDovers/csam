@@ -10,7 +10,7 @@ sam(
   g = 3,
   family = poisson(),
   max_iter = 100,
-  tol = 1e-06,
+  tol = 0.001,
   verbose = TRUE,
   start = NULL,
   maxit_step1 = 5,

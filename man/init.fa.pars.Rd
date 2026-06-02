@@ -11,7 +11,8 @@ init.fa.pars(
   family = poisson(),
   d = 2,
   fa.method = c("svd", "prcomp", "qr", "fa", "glmmTMB", "gllvm"),
-  update.intercepts = TRUE
+  update.intercepts = TRUE,
+  constrain = TRUE
 )
 }
 \arguments{

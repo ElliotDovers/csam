@@ -4,7 +4,7 @@
 \alias{BIC.csam}
 \title{Bayesian Information Criterion}
 \usage{
-\method{BIC}{csam}(object, ...)
+\method{BIC}{csam}(object, which.n.data = c("species", "sites", "all"), ...)
 }
 \arguments{
 \item{object}{A fitted object of class \code{"csam"} (must contain \code{Y}, \code{X},

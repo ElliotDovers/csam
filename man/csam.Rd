@@ -23,7 +23,9 @@ csam(
   backend = c("C++", "R"),
   constrain = FALSE,
   inner.constrain = FALSE,
-  starts.at.steps = FALSE,
+  starts.at.step1 = FALSE,
+  starts.at.step2 = FALSE,
+  starts.at.step3 = FALSE,
   trunc.tau.until.iter = 2,
   project.loadings = FALSE,
   use.glm.fit.when.unpenalised = FALSE

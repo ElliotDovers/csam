@@ -86,6 +86,9 @@ simulate_csam_data <- function(n, s, g, d, p, true.pars = list(), true.sp.arch =
   true.pars$phi = phi
 
   attr(dat, "pars") = true.pars
+  if (is.null(covariate.matrix)) {
+    attr(dat, "x") = x
+  }
 
   # Which looks something like this e.g.:
   if (plotting) {
@@ -106,5 +109,5 @@ simulate_csam_data <- function(n, s, g, d, p, true.pars = list(), true.sp.arch =
     }
   }
 
-  dat
+  return(dat)
 }

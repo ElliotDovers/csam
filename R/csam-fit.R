@@ -96,7 +96,9 @@ csam <- function(Y, X, g = 3, d = 2, family = poisson(),
                  psi1 = 0, psi2 = 0, max_iter = 100, tol = 1e-3,
                  verbose = TRUE, start = NULL,
                  maxit_step1 = 5, maxit_step2 = 5, maxit_step3 = 5,
-                 trace = TRUE, backend = c("C++", "R"), constrain = FALSE, inner.constrain = FALSE, starts.at.steps = FALSE, trunc.tau.until.iter = 2, project.loadings = FALSE, use.glm.fit.when.unpenalised = FALSE) {
+                 trace = TRUE, backend = c("C++", "R"), constrain = FALSE, inner.constrain = FALSE,
+                 starts.at.step1 = TRUE, starts.at.step2 = TRUE, starts.at.step3 = TRUE,
+                 trunc.tau.until.iter = 2, project.loadings = FALSE, use.glm.fit.when.unpenalised = FALSE) {
 
   backend <- match.arg(backend)
   n <- nrow(Y); s <- ncol(Y); p <- ncol(X)
@@ -194,7 +196,7 @@ csam <- function(Y, X, g = 3, d = 2, family = poisson(),
     # tau <- estep_post_probs(Y = Y, X = X, par.list = par.list, family = family)
 
     par.list$B <- mstep_arch_pars(Y = Y, X = X, par.list = par.list, tau = tau,
-                         family = family, maxit = maxit_step1, use.starts = starts.at.steps)
+                         family = family, maxit = maxit_step1, use.starts = starts.at.step1)
 
     ############################################################################
     # can we constrain Lambda to be orthogonal to the archetype parameters?
@@ -214,13 +216,13 @@ csam <- function(Y, X, g = 3, d = 2, family = poisson(),
     ############################################################################
 
     sp <- mstep_species_pars(Y = Y, X = X, par.list = par.list, tau = tau,
-                             family = family, psi2 = psi2, maxit = maxit_step2, backend = backend, use.starts = starts.at.steps, use.glm.fit.when.unpenalised = use.glm.fit.when.unpenalised)
+                             family = family, psi2 = psi2, maxit = maxit_step2, backend = backend, use.starts = starts.at.step2, use.glm.fit.when.unpenalised = use.glm.fit.when.unpenalised)
     par.list$beta0  <- sp$beta0
     par.list$Lambda <- sp$Lambda
     par.list$phi    <- sp$phi
 
     par.list$U <- mstep_site_scores(Y = Y, X = X, par.list = par.list, tau = tau,
-                           family = family, psi1 = psi1, maxit = maxit_step3, backend = backend, use.starts = starts.at.steps, use.glm.fit.when.unpenalised = use.glm.fit.when.unpenalised)
+                           family = family, psi1 = psi1, maxit = maxit_step3, backend = backend, use.starts = starts.at.step3, use.glm.fit.when.unpenalised = use.glm.fit.when.unpenalised)
 
     # apply constraints to the factor analytic terms if desired
     if (inner.constrain) {
@@ -280,6 +282,7 @@ csam <- function(Y, X, g = 3, d = 2, family = poisson(),
     #   break
     # }
 
+    # if (abs(pll - prev_pll)/abs(prev_pll) < tol) {
     if (abs(pll - prev_pll) < tol) {
       conv = 0
       break

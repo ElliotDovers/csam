@@ -710,17 +710,18 @@ confint.csam <- function(object,
 #' @exportS3Method stats::AIC csam
 AIC.csam <- function(object,
                       ..., k = 2) {
-  # get the number of parameters
-  n.pars <- length(unlist(object$par.list))
+
+  # get the number of parameters (pretending U are not parameters)
+  n.pars <- length(unlist(object$par.list)) - if (!is.null(object$par.list$U)) { length(object$par.list$U) } else {0}
 
   # get the model's likelihood
   ll <- object$penalised_loglik
   # adjust the likelihood if penalties are present
   if (!is.null(object$psi1)) {
-    ll + (0.5 * object$psi1 * sum(object$U^2))
+    ll - (0.5 * object$psi1 * sum(object$U^2))
   }
   if (!is.null(object$psi2)) {
-    ll + (0.5 * object$psi2 * sum(object$Lambda^2))
+    ll - (0.5 * object$psi2 * sum(object$Lambda^2))
   }
 
   out <- 2 * n.pars - 2 * ll
@@ -746,22 +747,29 @@ AIC.csam <- function(object,
 #' }
 #'
 #' @exportS3Method stats::BIC csam
-BIC.csam <- function(object,
+BIC.csam <- function(object, which.n.data = c("species", "sites", "all"),
                      ...) {
-  # get the number of parameters
-  n.pars <- length(unlist(object$par.list))
 
-  # for sample size, use # species as in SAMs literature (what is being mixed on)
-  n.data <- ncol(object$Y)
+  which.n.data <- match.arg(which.n.data)
+
+  # get the number of parameters (pretending U are not parameters)
+  n.pars <- length(unlist(object$par.list)) - if (!is.null(object$par.list$U)) { length(object$par.list$U) } else {0}
+
+  # calc. sample size based on which.n.data, e.g. # species as in SAMs literature (what is being mixed on)
+  n.data <- switch(which.n.data,
+                   species = ncol(object$Y),
+                   sites = nrow(object$Y),
+                   all = prod(dim(object$Y))
+  )
 
   # get the model's likelihood
   ll <- object$penalised_loglik
   # adjust the likelihood if penalties are present
   if (!is.null(object$psi1)) {
-    ll + (0.5 * object$psi1 * sum(object$U^2))
+    ll - (0.5 * object$psi1 * sum(object$U^2))
   }
   if (!is.null(object$psi2)) {
-    ll + (0.5 * object$psi2 * sum(object$Lambda^2))
+    ll - (0.5 * object$psi2 * sum(object$Lambda^2))
   }
 
   out <- log(n.data) * n.pars - 2 * ll

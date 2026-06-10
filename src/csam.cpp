@@ -61,7 +61,7 @@ Type objective_function<Type>::operator() ()
   REPORT(pi);
 
   // ---- Factor loadings (currently unconstrained passthrough) ----
-  matrix<Type> Lambda_con = Lambda;
+  //matrix<Type> Lambda_con = Lambda;
 
   // ---- Penalised-only DATA ----
   DATA_SCALAR(psi1);

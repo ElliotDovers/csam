@@ -11,7 +11,7 @@
   UL.setZero();
   for(int j=0;j<s;j++)
     for(int r=0;r<d;r++)
-      UL.col(j) += U.col(r) * Lambda_con(j,r);
+      UL.col(j) += U.col(r) * Lambda(j,r);
 
   Type nll = 0.0;
 
@@ -36,6 +36,6 @@
     for(int r=0;r<d;r++)
       nll -= dnorm(U(i,r), Type(0), Type(1), true);
 
-  REPORT(Lambda_con);
+  //REPORT(Lambda_con);
   return nll;
 }

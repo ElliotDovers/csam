@@ -100,7 +100,16 @@ mstep0_arch_pars <- function(Y, X, par.list, tau,
     #   family = family,
     #   control = list(maxit = maxit)
     # ))
-    fit <- stats::glm.fit(
+    # fit <- stats::glm.fit(
+    #   x = X_stack,
+    #   y = y_stack,
+    #   weights = weights_stack,
+    #   start = if (use.starts) {B_new[k, ]} else {NULL},
+    #   offset = offset_stack,
+    #   family = family,
+    #   control = list(maxit = maxit)
+    # )
+    fit <- glm2::glm.fit2(
       x = X_stack,
       y = y_stack,
       weights = weights_stack,
@@ -162,7 +171,16 @@ mstep0_species_pars <- function(Y, X, par.list, tau,
     #   family = family,
     #   control = list(maxit = maxit)
     # ))
-    fit <- stats::glm.fit(
+    # fit <- stats::glm.fit(
+    #   x = X_stack,
+    #   y = y_stack,
+    #   weights = weights_stack,
+    #   start = if (use.starts) {beta0_new[j]} else {NULL},
+    #   offset = offset_stack,
+    #   family = family,
+    #   control = list(maxit = maxit)
+    # )
+    fit <- glm2::glm.fit2(
       x = X_stack,
       y = y_stack,
       weights = weights_stack,

@@ -663,7 +663,7 @@ hessian_complete <- function(object) {
 #' @export
 #'
 #' @importFrom stats kmeans glm.fit
-init.sam.pars <- function(Y, X, g = 3, family = poisson(), update.intercepts = FALSE) {
+init.sam.pars <- function(Y, X, g = 3, family = poisson(), update.intercepts = FALSE, mixing.props.equal = FALSE) {
 
   n <- nrow(Y); s <- ncol(Y); p <- ncol(X)
 
@@ -674,7 +674,8 @@ init.sam.pars <- function(Y, X, g = 3, family = poisson(), update.intercepts = F
   beta0.init = vector("numeric", s)
   beta1.init = matrix(rep(0, s * p), s, p)
   for (sp in 1:s) {
-    tmp.m = stats::glm.fit(x = cbind(rep(1, nrow(X)), X), y = Y[,sp], family = family)
+    # tmp.m = stats::glm.fit(x = cbind(rep(1, nrow(X)), X), y = Y[,sp], family = family)
+    tmp.m = glm2::glm.fit2(x = cbind(rep(1, nrow(X)), X), y = Y[,sp], family = family)
     beta0.init[sp] = tmp.m$coefficients[1]
     beta1.init[sp, ] = tmp.m$coefficients[2:(p + 1)]
   }
@@ -682,14 +683,16 @@ init.sam.pars <- function(Y, X, g = 3, family = poisson(), update.intercepts = F
   # update the starting parameters for the slopes and intercepts
   start.pars$beta0 = beta0.init
   start.pars$B = clust$centers
-  start.pars$pi = prop.table(table(clust$cluster))
-
+  if (!mixing.props.equal) {
+    start.pars$pi = prop.table(table(clust$cluster))
+  }
   attr(start.pars, "sp clust") = clust$clust
 
   if (update.intercepts) {
     for (sp in 1:s) {
       tmp.offset = X %*% start.pars$B[attr(start.pars,"sp clust")[sp], ]
-      tmp.m = stats::glm.fit(y = Y[,sp], x = matrix(1, nrow = nrow(X), ncol = 1), family = family, offset = tmp.offset)
+      # tmp.m = stats::glm.fit(y = Y[,sp], x = matrix(1, nrow = nrow(X), ncol = 1), family = family, offset = tmp.offset)
+      tmp.m = glm2::glm.fit2(y = Y[,sp], x = matrix(1, nrow = nrow(X), ncol = 1), family = family, offset = tmp.offset)
       start.pars$beta0[sp] = tmp.m$coefficients
     }
   }
@@ -757,94 +760,98 @@ init.sam.pars <- function(Y, X, g = 3, family = poisson(), update.intercepts = F
 #' @importFrom glmmTMB glmmTMB getME
 #' @importFrom DHARMa simulateResiduals
 #' @importFrom stats glm
-init.fa.pars <- function(Y, X, g = 3, family = poisson(), d = 2, fa.method = c("svd", "prcomp", "qr", "fa", "glmmTMB", "gllvm"), update.intercepts = TRUE, constrain = TRUE) {
+init.fa.pars <- function(Y, X, g = 3, family = poisson(), d = 2, fa.method = c("svd", "prcomp", "qr", "fa", "glmmTMB", "gllvm"), update.intercepts = TRUE, constrain = TRUE, use.internal.qresid = FALSE, mixing.props.equal = FALSE) {
 
   fa.method = match.arg(fa.method)
   n <- nrow(Y); s <- ncol(Y); p <- ncol(X)
 
   # initialise usual SAM parameters
-  start.pars = csam::init.sam.pars(Y, X, g = g, family = family)
+  start.pars = csam::init.sam.pars(Y, X, g = g, family = family, update.intercepts = update.intercepts, mixing.props.equal = mixing.props.equal)
 
-  # fit an initial species-specific models to obtain warm starts as in Hui et al. 2013
-
-  # with hard class labelling:
-  res = matrix(rep(0, n * s), n, s)
-  if (family$family == "binomial") {
-    for (sp in 1:s) {
-      if (update.intercepts) {
-        tmp.offset = X %*% start.pars$B[attr(start.pars,"sp clust")[sp], ]
-        tmp.m = stats::glm(y ~ 1, data = data.frame(y = Y[,sp]), family = family, offset = tmp.offset)
-        start.pars$beta0[sp] = tmp.m$coefficients
-      } else {
-        tmp.offset = start.pars$beta0[sp] + X %*% start.pars$B[attr(start.pars,"sp clust")[sp], ]
-        tmp.m = stats::glm(y ~ 0, data = data.frame(y = Y[,sp]), family = family, offset = tmp.offset)
-      }
-      res[ , sp] = DHARMa:::residuals.DHARMa(DHARMa::simulateResiduals(tmp.m))
-    }
-    # remove boundaries that result in infinite residuals
-    res[res == 1] = 1 -.Machine$double.eps
-    res[res == 0] = .Machine$double.eps
-    res = qnorm(res)
+  if (use.internal.qresid) {
+    res <- csam:::qresiduals_csam_internal(start.pars, Y, X, family = family)
   } else {
-    for (sp in 1:s) {
-      tmp.offset = X %*% start.pars$B[attr(start.pars,"sp clust")[sp], ]
-      tmp.m = glmmTMB::glmmTMB(y ~ 1, data = data.frame(y = Y[,sp]), family = family, offset = tmp.offset)
-      if (update.intercepts) {
-        start.pars$beta0[sp] = tmp.m$fit$par
-      }
-      res[ , sp] = glmmTMB:::residuals.glmmTMB(tmp.m, type = "dunn-smyth")
-    }
-  }
-  # for (sp in 1:s) {
-  #   if (family$family == "binomial") {
-  #     if (update.intercepts) {
-  #       tmp.offset = X %*% start.pars$B[attr(start.pars,"sp clust")[sp], ]
-  #       tmp.m = stats::glm(y ~ 1, data = data.frame(y = Y[,sp]), family = family, offset = tmp.offset)
-  #       start.pars$beta0[sp] = tmp.m$coefficients
-  #     } else {
-  #       tmp.offset = start.pars$beta0[sp] + X %*% start.pars$B[attr(start.pars,"sp clust")[sp], ]
-  #       tmp.m = stats::glm(y ~ 0, data = data.frame(y = Y[,sp]), family = family, offset = tmp.offset)
-  #     }
-  #     res[ , sp] = DHARMa:::residuals.DHARMa(DHARMa::simulateResiduals(tmp.m))
-  #     # remove boundaries that result in infinite residuals
-  #     res[res == 1] = 1 -.Machine$double.eps
-  #     res[res == 0] = .Machine$double.eps
-  #     res = qnorm(res)
-  #   } else {
-  #     tmp.offset = X %*% start.pars$B[attr(start.pars,"sp clust")[sp], ]
-  #     tmp.m = glmmTMB::glmmTMB(y ~ 1, data = data.frame(y = Y[,sp]), family = family, offset = tmp.offset)
-  #     if (update.intercepts) {
-  #       start.pars$beta0[sp] = tmp.m$fit$par
-  #     }
-  #     res[ , sp] = glmmTMB:::residuals.glmmTMB(tmp.m, type = "dunn-smyth")
-  #   }
-  #   # res[ , sp] = glmmTMB:::residuals.glmmTMB(tmp.m, type = "dunn-smyth") # CON: uses an unexported function, throws error for binomial, requires glmmTMB() rather than glm() above
-  #   # res[ , sp] = DHARMa:::residuals.DHARMa(DHARMa::simulateResiduals(tmp.m), quantileFunction = qnorm) # CON: uses a non-exported function
-  #   # res[ , sp] = DHARMa::simulateResiduals(tmp.m)$scaledResiduals
-  #   # res[ , sp] = statmod::qresiduals(tmp.m) # CON: leads to Inf/-Inf values
-  # }
+    # fit an initial species-specific models to obtain warm starts as in Hui et al. 2013
 
-  # # with weights for each archetype:
-  # res = matrix(rep(0, n * s * g), n * g, s)
-  # for (j in 1:s) {
-  #   y_stack <- rep(NA, n * g)
-  #   weights_stack <- rep(0, n * g)
-  #   offset_stack <- rep(0, n * g)
-  #   for (k in 1:g) {
-  #     idx <- ((k - 1) * n + 1):(k * n)
-  #     y_stack[idx] <- Y[, j]
-  #     offset_stack[idx] <- as.vector(X %*% start.pars$B[k, ])
-  #     weights_stack[idx] <- start.pars$pi[k]
-  #   }
-  #   # tmp.m = stats::glm(y ~ 0, data = data.frame(y = y_stack), family = family, offset = offset_stack, weights = weights_stack) # CON: see options for qresiduals below
-  #   if (family$family == "binomial") {
-  #     tmp.m = glmmTMB::glmmTMB(cbind(y, 1 - y) ~ 1, data = data.frame(y = y_stack), family = family, offset = offset_stack, weights = weights_stack)
-  #     res[ , j] = DHARMa:::residuals.DHARMa(DHARMa::simulateResiduals(tmp.m), quantileFunction = qnorm)
-  #   } else {
-  #     tmp.m = glmmTMB::glmmTMB(y ~ 1, data = data.frame(y = y_stack), family = family, offset = offset_stack, weights = weights_stack)
-  #     res[ , j] = glmmTMB:::residuals.glmmTMB(tmp.m, type = "dunn-smyth")
-  #   }
-  # }
+    # with hard class labelling:
+    res = matrix(rep(0, n * s), n, s)
+    if (family$family == "binomial") {
+      for (sp in 1:s) {
+        if (update.intercepts) {
+          tmp.offset = X %*% start.pars$B[attr(start.pars,"sp clust")[sp], ]
+          tmp.m = stats::glm(y ~ 1, data = data.frame(y = Y[,sp]), family = family, offset = tmp.offset)
+          start.pars$beta0[sp] = tmp.m$coefficients
+        } else {
+          tmp.offset = start.pars$beta0[sp] + X %*% start.pars$B[attr(start.pars,"sp clust")[sp], ]
+          tmp.m = stats::glm(y ~ 0, data = data.frame(y = Y[,sp]), family = family, offset = tmp.offset)
+        }
+        res[ , sp] = DHARMa:::residuals.DHARMa(DHARMa::simulateResiduals(tmp.m))
+      }
+      # remove boundaries that result in infinite residuals
+      res[res == 1] = 1 -.Machine$double.eps
+      res[res == 0] = .Machine$double.eps
+      res = qnorm(res)
+    } else {
+      for (sp in 1:s) {
+        tmp.offset = X %*% start.pars$B[attr(start.pars,"sp clust")[sp], ]
+        tmp.m = glmmTMB::glmmTMB(y ~ 1, data = data.frame(y = Y[,sp]), family = family, offset = tmp.offset)
+        if (update.intercepts) {
+          start.pars$beta0[sp] = tmp.m$fit$par
+        }
+        res[ , sp] = glmmTMB:::residuals.glmmTMB(tmp.m, type = "dunn-smyth")
+      }
+    }
+    # for (sp in 1:s) {
+    #   if (family$family == "binomial") {
+    #     if (update.intercepts) {
+    #       tmp.offset = X %*% start.pars$B[attr(start.pars,"sp clust")[sp], ]
+    #       tmp.m = stats::glm(y ~ 1, data = data.frame(y = Y[,sp]), family = family, offset = tmp.offset)
+    #       start.pars$beta0[sp] = tmp.m$coefficients
+    #     } else {
+    #       tmp.offset = start.pars$beta0[sp] + X %*% start.pars$B[attr(start.pars,"sp clust")[sp], ]
+    #       tmp.m = stats::glm(y ~ 0, data = data.frame(y = Y[,sp]), family = family, offset = tmp.offset)
+    #     }
+    #     res[ , sp] = DHARMa:::residuals.DHARMa(DHARMa::simulateResiduals(tmp.m))
+    #     # remove boundaries that result in infinite residuals
+    #     res[res == 1] = 1 -.Machine$double.eps
+    #     res[res == 0] = .Machine$double.eps
+    #     res = qnorm(res)
+    #   } else {
+    #     tmp.offset = X %*% start.pars$B[attr(start.pars,"sp clust")[sp], ]
+    #     tmp.m = glmmTMB::glmmTMB(y ~ 1, data = data.frame(y = Y[,sp]), family = family, offset = tmp.offset)
+    #     if (update.intercepts) {
+    #       start.pars$beta0[sp] = tmp.m$fit$par
+    #     }
+    #     res[ , sp] = glmmTMB:::residuals.glmmTMB(tmp.m, type = "dunn-smyth")
+    #   }
+    #   # res[ , sp] = glmmTMB:::residuals.glmmTMB(tmp.m, type = "dunn-smyth") # CON: uses an unexported function, throws error for binomial, requires glmmTMB() rather than glm() above
+    #   # res[ , sp] = DHARMa:::residuals.DHARMa(DHARMa::simulateResiduals(tmp.m), quantileFunction = qnorm) # CON: uses a non-exported function
+    #   # res[ , sp] = DHARMa::simulateResiduals(tmp.m)$scaledResiduals
+    #   # res[ , sp] = statmod::qresiduals(tmp.m) # CON: leads to Inf/-Inf values
+    # }
+
+    # # with weights for each archetype:
+    # res = matrix(rep(0, n * s * g), n * g, s)
+    # for (j in 1:s) {
+    #   y_stack <- rep(NA, n * g)
+    #   weights_stack <- rep(0, n * g)
+    #   offset_stack <- rep(0, n * g)
+    #   for (k in 1:g) {
+    #     idx <- ((k - 1) * n + 1):(k * n)
+    #     y_stack[idx] <- Y[, j]
+    #     offset_stack[idx] <- as.vector(X %*% start.pars$B[k, ])
+    #     weights_stack[idx] <- start.pars$pi[k]
+    #   }
+    #   # tmp.m = stats::glm(y ~ 0, data = data.frame(y = y_stack), family = family, offset = offset_stack, weights = weights_stack) # CON: see options for qresiduals below
+    #   if (family$family == "binomial") {
+    #     tmp.m = glmmTMB::glmmTMB(cbind(y, 1 - y) ~ 1, data = data.frame(y = y_stack), family = family, offset = offset_stack, weights = weights_stack)
+    #     res[ , j] = DHARMa:::residuals.DHARMa(DHARMa::simulateResiduals(tmp.m), quantileFunction = qnorm)
+    #   } else {
+    #     tmp.m = glmmTMB::glmmTMB(y ~ 1, data = data.frame(y = y_stack), family = family, offset = offset_stack, weights = weights_stack)
+    #     res[ , j] = glmmTMB:::residuals.glmmTMB(tmp.m, type = "dunn-smyth")
+    #   }
+    # }
+  }
 
   if (fa.method == "fa") {
     # perform factor analysis on the residuals
@@ -1018,11 +1025,15 @@ mzll <- function(Y, X, par.list, g = 3, d = 2, family = poisson(),
 #' Calculate the fitted values of a CSAM/SAM, \eqn{\mu_{ijk}}, and compute the posterior predictive mean (internal)
 #'
 #' @keywords internal
-fitted_csam_internal <- function(par.list, X, tau, family,
+fitted_csam_internal <- function(par.list, X, tau = NULL, family,
                            type = c("response", "link"),
                            archetype_specific = FALSE) {
 
   type <- match.arg(type)
+
+  if (!archetype_specific & is.null(tau)) {
+    stop("tau must be supplied when computing posterior predicted means (i.e., when archetype_specific = FALSE)")
+  }
 
   beta0  <- par.list$beta0      # length s
   B      <- par.list$B          # g × p
@@ -1088,6 +1099,69 @@ fitted_csam_internal <- function(par.list, X, tau, family,
     }
     return(out)
   }
+}
+
+#' Calculate the fitted values of a CSAM/SAM, \eqn{\mu_{ijk}}, and compute the posterior predictive mean (internal)
+#'
+#' @keywords internal
+qresiduals_csam_internal <- function(par.list, Y, X, tau = NULL, family,
+                                 type = c("dunn-smyth", "pearson"),
+                                 archetype_specific = FALSE, seed = NULL) {
+
+  type <- match.arg(type)
+
+  # get the fitted values
+  mu <- fitted_csam_internal(par.list = par.list, X = X, family = family, type = "response", archetype_specific = TRUE)
+
+  # initialise the archetype specific cumulative distribution storage
+  piG_ <- array(NA, dim = dim(mu))
+  piG <- array(NA, dim = dim(mu))
+  if (family$family == "binomial") {
+    for (k in 1:dim(mu)[3]) {
+      n <- matrix(1, nrow = nrow(Y), ncol = ncol(Y)) # may want to update if allowing different specifications for trials in a Bernoulli
+      y <- n * Y
+      if (!is.null(tau)) {
+
+        # calculate the archetype CDFs and multiply by appropriate weights (tau[j, k], for each species/column j)
+        piG_[ , , k] <- sweep(pbinom(y - 1, n, mu[ , , k]), 2, tau[ , k], "*")
+        piG[ , , k] <- sweep(pbinom(y, n, mu[ , , k]), 2, tau[ , k], "*")
+
+      } else {
+
+        # calculate the archetype CDFs and multiply by appropriate weights (pi[k], for each archetype k)
+        piG_[ , , k] <- pbinom(y - 1, n, mu[ , , k]) * par.list$pi[k]
+        piG[ , , k] <- pbinom(y, n, mu[ , , k]) * par.list$pi[k]
+
+      }
+    }
+  } else if (family$family == "poisson") {
+    for (k in 1:dim(mu)[3]) {
+      if (!is.null(tau)) {
+
+        # calculate the archetype CDFs and multiply by appropriate weights (tau[j, k], for each species/column j)
+        piG_[ , , k] <- sweep(ppois(Y - 1, n, mu[ , , k]), 2, tau[ , k], "*")
+        piG[ , , k] <- sweep(ppois(Y, n, mu[ , , k]), 2, tau[ , k], "*")
+
+      } else {
+
+        # calculate the archetype CDFs and multiply by appropriate weights (pi[k], for each archetype k)
+        piG_[ , , k] <- ppois(Y - 1, n, mu[ , , k]) * par.list$pi[k]
+        piG[ , , k] <- ppois(Y, n, mu[ , , k]) * par.list$pi[k]
+
+      }
+    }
+  } else {
+    stop("family is not yet implemented")
+  }
+
+  # compute the sum of CDFs over the archetypes
+  cf_ <- apply(piG_, c(1, 2), sum)
+  cf <- apply(piG, c(1, 2), sum)
+  # randomised standard normal
+  u = runif(n = length(Y), min = cf_, max = cf)
+  r = matrix(qnorm(u), nrow = nrow(Y), ncol = ncol(Y))
+
+  return(r)
 }
 
 #' Calculate the posterior membership probabilities for a model fitted via TMB (internal)
@@ -1395,7 +1469,7 @@ se_csam_sw <- function(object, which.pars = NULL) {
       silent = TRUE
     )
 
-    S_j <- as.vector(obj_meat$gr())
+    S_j <- as.vector(-obj_meat$gr())
 
     tmp.idx <- c(idx.list$beta0[j], as.vector(idx.list$B), idx.list$logit_pi, as.vector(idx.list$U), as.vector(idx.list$Lambda[j, ]), idx.list$logphi)
     S[tmp.idx, j] <- S_j

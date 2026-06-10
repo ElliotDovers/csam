@@ -96,9 +96,9 @@ csam <- function(Y, X, g = 3, d = 2, family = poisson(),
                  psi1 = 0, psi2 = 0, max_iter = 100, tol = 1e-3,
                  verbose = TRUE, start = NULL,
                  maxit_step1 = 5, maxit_step2 = 5, maxit_step3 = 5,
-                 trace = TRUE, backend = c("C++", "R"), constrain = FALSE, inner.constrain = FALSE,
+                 trace = TRUE, backend = c("C++", "R"), constrain = TRUE, inner.constrain = FALSE,
                  starts.at.step1 = TRUE, starts.at.step2 = TRUE, starts.at.step3 = TRUE,
-                 trunc.tau.until.iter = 2, project.loadings = FALSE, use.glm.fit.when.unpenalised = FALSE) {
+                 trunc.tau.until.iter = 2, project.loadings = FALSE, use.glm.fit.when.unpenalised = TRUE) {
 
   backend <- match.arg(backend)
   n <- nrow(Y); s <- ncol(Y); p <- ncol(X)
@@ -428,6 +428,7 @@ sam <- function(Y, X, g = 3, family = poisson(),
                 verbose = TRUE, start = NULL,
                 maxit_step1 = 5, maxit_step2 = 5,
                 #first_maxit_step1 = 50, first_maxit_step2 = 50,
+                starts.at.step1 = TRUE, starts.at.step2 = TRUE,
                 trace = TRUE) {
 
   n <- nrow(Y); s <- ncol(Y); p <- ncol(X)
@@ -513,7 +514,7 @@ sam <- function(Y, X, g = 3, family = poisson(),
     #                                  family = family, maxit = maxit_step1)
     # }
     par.list$B <- mstep0_arch_pars(Y = Y, X = X, par.list = par.list, tau = tau,
-                                   family = family, maxit = maxit_step1)
+                                   family = family, maxit = maxit_step1, use.starts = starts.at.step1)
 
     # if (iter == 1) {
     #   sp <- mstep0_species_pars(Y = Y, X = X, par.list = par.list, tau = tau,
@@ -523,7 +524,7 @@ sam <- function(Y, X, g = 3, family = poisson(),
     #                             family = family, maxit = maxit_step2)
     # }
     sp <- mstep0_species_pars(Y = Y, X = X, par.list = par.list, tau = tau,
-                              family = family, maxit = maxit_step2)
+                              family = family, maxit = maxit_step2, use.starts = starts.at.step2)
 
     par.list$beta0  <- sp$beta0
     par.list$phi    <- sp$phi
@@ -603,7 +604,7 @@ sam <- function(Y, X, g = 3, family = poisson(),
   out
 }
 
-#' Fit a Correlated Species Archetype Model (CSAM)
+#' Fit a Correlated Species Archetype Model (CSAM) via gradient-based optimiser
 #'
 #' @description
 #' Fits the correlated species archetype model

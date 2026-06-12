@@ -98,7 +98,10 @@ csam <- function(Y, X, g = 3, d = 2, family = poisson(),
                  maxit_step1 = 5, maxit_step2 = 5, maxit_step3 = 5,
                  trace = TRUE, backend = c("C++", "R"), constrain = TRUE, inner.constrain = FALSE,
                  starts.at.step1 = TRUE, starts.at.step2 = TRUE, starts.at.step3 = TRUE,
-                 trunc.tau.until.iter = 2, project.loadings = FALSE, use.glm.fit.when.unpenalised = TRUE) {
+                 trunc.tau.until.iter = 2, project.loadings = FALSE,
+                 use.glm.fit.when.unpenalised = TRUE,
+                 take.best.fit = TRUE # will check trace for the highest likelihood and revert parameters (in case of bouncing and accidental convergence)
+                 ) {
 
   backend <- match.arg(backend)
   n <- nrow(Y); s <- ncol(Y); p <- ncol(X)
@@ -304,6 +307,22 @@ csam <- function(Y, X, g = 3, d = 2, family = poisson(),
     trace_store$pll      <- trace_store$pll[1:iter]
     trace_store$pll_diff <- trace_store$pll_diff[1:iter]
     trace_store$is_monotone <- trace_store$is_monotone[1:iter]
+  }
+
+  # revert parameters to those that achieved the highest likelihood
+  if (take.best.fit) {
+    if (trace) {
+      if (pll < max(trace_store$pll)) {
+        best.idx <- which.max(trace_store$pll)
+        best.par.list <- lapply(trace_store, function(x){x[[best.idx]]})
+        pll <- best.par.list$pll
+        tau <- best.par.list$tau
+        par.list <- best.par.list[names(best.par.list) %in% names(par.list)]
+        conv = 9
+      }
+    } else if (!trace) {
+      warning("Could not check best fitting parameters without trace = TRUE: this is a problem if the likelihood experienced bouncing during EM")
+    }
   }
 
   # apply constraints to the factor analytic terms if desired

@@ -97,7 +97,7 @@ csam <- function(Y, X, g = 3, d = 2, family = poisson(),
                  verbose = TRUE, start = NULL,
                  maxit_step1 = 5, maxit_step2 = 5, maxit_step3 = 5,
                  trace = TRUE, backend = c("C++", "R"), constrain = TRUE, inner.constrain = FALSE,
-                 starts.at.step1 = TRUE, starts.at.step2 = TRUE, starts.at.step3 = TRUE,
+                 starts.at.step1.from.iter = 0, starts.at.step2.from.iter = 0, starts.at.step3.from.iter = 0,
                  trunc.tau.until.iter = 2, project.loadings = FALSE,
                  use.glm.fit.when.unpenalised = TRUE,
                  take.best.fit = TRUE # will check trace for the highest likelihood and revert parameters (in case of bouncing and accidental convergence)
@@ -199,7 +199,7 @@ csam <- function(Y, X, g = 3, d = 2, family = poisson(),
     # tau <- estep_post_probs(Y = Y, X = X, par.list = par.list, family = family)
 
     par.list$B <- mstep_arch_pars(Y = Y, X = X, par.list = par.list, tau = tau,
-                         family = family, maxit = maxit_step1, use.starts = starts.at.step1)
+                         family = family, maxit = maxit_step1, use.starts = iter >= starts.at.step1.from.iter)
 
     ############################################################################
     # can we constrain Lambda to be orthogonal to the archetype parameters?
@@ -219,13 +219,13 @@ csam <- function(Y, X, g = 3, d = 2, family = poisson(),
     ############################################################################
 
     sp <- mstep_species_pars(Y = Y, X = X, par.list = par.list, tau = tau,
-                             family = family, psi2 = psi2, maxit = maxit_step2, backend = backend, use.starts = starts.at.step2, use.glm.fit.when.unpenalised = use.glm.fit.when.unpenalised)
+                             family = family, psi2 = psi2, maxit = maxit_step2, backend = backend, use.starts = iter >= starts.at.step2.from.iter, use.glm.fit.when.unpenalised = use.glm.fit.when.unpenalised)
     par.list$beta0  <- sp$beta0
     par.list$Lambda <- sp$Lambda
     par.list$phi    <- sp$phi
 
     par.list$U <- mstep_site_scores(Y = Y, X = X, par.list = par.list, tau = tau,
-                           family = family, psi1 = psi1, maxit = maxit_step3, backend = backend, use.starts = starts.at.step3, use.glm.fit.when.unpenalised = use.glm.fit.when.unpenalised)
+                           family = family, psi1 = psi1, maxit = maxit_step3, backend = backend, use.starts = iter >= starts.at.step3.from.iter, use.glm.fit.when.unpenalised = use.glm.fit.when.unpenalised)
 
     # apply constraints to the factor analytic terms if desired
     if (inner.constrain) {
@@ -447,7 +447,7 @@ sam <- function(Y, X, g = 3, family = poisson(),
                 verbose = TRUE, start = NULL,
                 maxit_step1 = 5, maxit_step2 = 5,
                 #first_maxit_step1 = 50, first_maxit_step2 = 50,
-                starts.at.step1 = TRUE, starts.at.step2 = TRUE,
+                starts.at.step1.from.iter = 0, starts.at.step2.from.iter = 0,
                 trace = TRUE) {
 
   n <- nrow(Y); s <- ncol(Y); p <- ncol(X)
@@ -533,7 +533,7 @@ sam <- function(Y, X, g = 3, family = poisson(),
     #                                  family = family, maxit = maxit_step1)
     # }
     par.list$B <- mstep0_arch_pars(Y = Y, X = X, par.list = par.list, tau = tau,
-                                   family = family, maxit = maxit_step1, use.starts = starts.at.step1)
+                                   family = family, maxit = maxit_step1, use.starts = iter >= starts.at.step1.from.iter)
 
     # if (iter == 1) {
     #   sp <- mstep0_species_pars(Y = Y, X = X, par.list = par.list, tau = tau,
@@ -543,7 +543,7 @@ sam <- function(Y, X, g = 3, family = poisson(),
     #                             family = family, maxit = maxit_step2)
     # }
     sp <- mstep0_species_pars(Y = Y, X = X, par.list = par.list, tau = tau,
-                              family = family, maxit = maxit_step2, use.starts = starts.at.step2)
+                              family = family, maxit = maxit_step2, use.starts = iter >= starts.at.step2.from.iter)
 
     par.list$beta0  <- sp$beta0
     par.list$phi    <- sp$phi

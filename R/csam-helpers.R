@@ -663,30 +663,53 @@ hessian_complete <- function(object) {
 #' @export
 #'
 #' @importFrom stats kmeans glm.fit
-init.sam.pars <- function(Y, X, g = 3, family = poisson(), update.intercepts = FALSE, mixing.props.equal = FALSE) {
+init.sam.pars <- function(Y, X, g = 3, family = poisson(), update.intercepts = FALSE, mixing.props.equal = FALSE, use.ecomix = FALSE) {
 
   n <- nrow(Y); s <- ncol(Y); p <- ncol(X)
 
   # initialise parameter list
   start.pars = list(beta0 = rep(0, s), B = matrix(rep(0, g * p), g, p), pi = rep(1/g, g), phi = rep(1, s))
 
-  # fit an initial species-specific models to obtain warm starts as in Hui et al. 2013
-  beta0.init = vector("numeric", s)
-  beta1.init = matrix(rep(0, s * p), s, p)
-  for (sp in 1:s) {
-    # tmp.m = stats::glm.fit(x = cbind(rep(1, nrow(X)), X), y = Y[,sp], family = family)
-    tmp.m = glm2::glm.fit2(x = cbind(rep(1, nrow(X)), X), y = Y[,sp], family = family)
-    beta0.init[sp] = tmp.m$coefficients[1]
-    beta1.init[sp, ] = tmp.m$coefficients[2:(p + 1)]
+  if (use.ecomix) {
+    if (!requireNamespace("ecomix", quietly = TRUE)) {
+      stop("if using ecomix for starting parameters please install via:\ndevtools::install_github('skiptoniam/ecomix')")
+    }
+    # set the family code
+    dist.code <- switch (family$family,
+      binomial = 1,
+      poisson = 2,
+      gaussian = 3 # add more later (check codes in ecomix:::get_initial_values_sam)
+    )
+    tmp.ctrl <- ecomix:::set.control(list())
+    tmp.ctrl$ecm_prefit <- TRUE
+    tmp.ctrl$ecm_refit <- 5
+    tmp.ctrl$init_method = "kmeans"
+    tmp = ecomix:::get_initial_values_sam(Y, X, W = matrix(1, nrow = nrow(Y), ncol = 1), G = g, S = ncol(Y), control = tmp.ctrl, disty = dist.code, offset = NULL)
+    start.pars$beta0 <- as.vector(tmp$alpha)
+    start.pars$B <- tmp$beta
+    if (!mixing.props.equal) {
+      start.pars$pi <- tmp$pi
+    }
+    attr(start.pars, "sp clust") = apply(tmp$tau, 1, which.max)
+  } else {
+    # fit an initial species-specific models to obtain warm starts as in Hui et al. 2013
+    beta0.init = vector("numeric", s)
+    beta1.init = matrix(rep(0, s * p), s, p)
+    for (sp in 1:s) {
+      # tmp.m = stats::glm.fit(x = cbind(rep(1, nrow(X)), X), y = Y[,sp], family = family)
+      tmp.m = glm2::glm.fit2(x = cbind(rep(1, nrow(X)), X), y = Y[,sp], family = family)
+      beta0.init[sp] = tmp.m$coefficients[1]
+      beta1.init[sp, ] = tmp.m$coefficients[2:(p + 1)]
+    }
+    clust = stats::kmeans(beta1.init, g)
+    # update the starting parameters for the slopes and intercepts
+    start.pars$beta0 = beta0.init
+    start.pars$B = clust$centers
+    if (!mixing.props.equal) {
+      start.pars$pi = prop.table(table(clust$cluster))
+    }
+    attr(start.pars, "sp clust") = clust$clust
   }
-  clust = stats::kmeans(beta1.init, g)
-  # update the starting parameters for the slopes and intercepts
-  start.pars$beta0 = beta0.init
-  start.pars$B = clust$centers
-  if (!mixing.props.equal) {
-    start.pars$pi = prop.table(table(clust$cluster))
-  }
-  attr(start.pars, "sp clust") = clust$clust
 
   if (update.intercepts) {
     for (sp in 1:s) {
@@ -760,13 +783,13 @@ init.sam.pars <- function(Y, X, g = 3, family = poisson(), update.intercepts = F
 #' @importFrom glmmTMB glmmTMB getME
 #' @importFrom DHARMa simulateResiduals
 #' @importFrom stats glm
-init.fa.pars <- function(Y, X, g = 3, family = poisson(), d = 2, fa.method = c("svd", "prcomp", "qr", "fa", "glmmTMB", "gllvm"), update.intercepts = TRUE, constrain = TRUE, use.internal.qresid = FALSE, mixing.props.equal = FALSE) {
+init.fa.pars <- function(Y, X, g = 3, family = poisson(), d = 2, fa.method = c("svd", "prcomp", "qr", "fa", "glmmTMB", "gllvm"), update.intercepts = TRUE, constrain = TRUE, use.internal.qresid = FALSE, mixing.props.equal = FALSE, use.ecomix = FALSE) {
 
   fa.method = match.arg(fa.method)
   n <- nrow(Y); s <- ncol(Y); p <- ncol(X)
 
   # initialise usual SAM parameters
-  start.pars = csam::init.sam.pars(Y, X, g = g, family = family, update.intercepts = update.intercepts, mixing.props.equal = mixing.props.equal)
+  start.pars = csam::init.sam.pars(Y, X, g = g, family = family, update.intercepts = update.intercepts, mixing.props.equal = mixing.props.equal, use.ecomix = use.ecomix)
 
   if (use.internal.qresid) {
     res <- csam:::qresiduals_csam_internal(start.pars, Y, X, family = family)

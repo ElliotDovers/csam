@@ -93,18 +93,38 @@
 #'
 #' @export
 csam <- function(Y, X, g = 3, d = 2, family = poisson(),
-                 psi1 = 0, psi2 = 0, max_iter = 100, tol = 1e-3,
+                 psi1 = 0, psi2 = 0, max_iter = 100, tol = 1e-08,
                  verbose = TRUE, start = NULL,
                  maxit_step1 = 5, maxit_step2 = 5, maxit_step3 = 5,
                  trace = TRUE, backend = c("C++", "R"), constrain = TRUE, inner.constrain = FALSE,
-                 starts.at.step1.from.iter = 0, starts.at.step2.from.iter = 0, starts.at.step3.from.iter = 0,
+                 starts.at.step1.from.iter = NULL, starts.at.step2.from.iter = NULL, starts.at.step3.from.iter = NULL,
                  trunc.tau.until.iter = 2, project.loadings = FALSE,
                  use.glm.fit.when.unpenalised = TRUE,
                  take.best.fit = TRUE # will check trace for the highest likelihood and revert parameters (in case of bouncing and accidental convergence)
                  ) {
-
+  cl <- match.call()
   backend <- match.arg(backend)
   n <- nrow(Y); s <- ncol(Y); p <- ncol(X)
+
+  # get defaults for use of starts within EM steps - if using unpenalised version set to beyond the max iterations
+  if (psi1 == 0 & psi2 == 0 & use.glm.fit.when.unpenalised & is.null(starts.at.step1.from.iter)) {
+    # if unpenalised version set to beyond the max iterations
+    starts.at.step1.from.iter <- max_iter + 1
+  } else if (is.null(starts.at.step1.from.iter)) {
+    starts.at.step1.from.iter <- 3
+  }
+  if (psi1 == 0 & psi2 == 0 & use.glm.fit.when.unpenalised & is.null(starts.at.step2.from.iter)) {
+    # if unpenalised version set to beyond the max iterations
+    starts.at.step2.from.iter <- max_iter + 1
+  } else if (is.null(starts.at.step2.from.iter)) {
+    starts.at.step2.from.iter <- 3
+  }
+  if (psi1 == 0 & psi2 == 0 & use.glm.fit.when.unpenalised & is.null(starts.at.step3.from.iter)) {
+    # if unpenalised version set to beyond the max iterations
+    starts.at.step3.from.iter <- max_iter + 1
+  } else if (is.null(starts.at.step3.from.iter)) {
+    starts.at.step3.from.iter <- 3
+  }
 
   # check if the supplied starting parameters are a fitted csam object and correct as needed
   if (!is.null(start)) {
@@ -250,7 +270,7 @@ csam <- function(Y, X, g = 3, d = 2, family = poisson(),
                  g = g, d = d, family = family, psi1 = psi1, psi2 = psi2)
 
     if (verbose) {
-      cat(sprintf(paste0("Iter %3d: ", if (psi1 != 0 | psi2 != 0) {"penalised "} else {""}, "logLik = %.6f | Ratio = %3f\n"), iter, pll, exp(prev_pll - pll)))
+      cat(sprintf(paste0("Iter %3d: ", if (psi1 != 0 | psi2 != 0) {"penalised "} else {""}, "logLik = %.6f | Relative change = %.8f\n"), iter, pll, abs(pll - prev_pll)/(0.1 + abs(pll))))
     }
 
     if (trace) {
@@ -276,17 +296,8 @@ csam <- function(Y, X, g = 3, d = 2, family = poisson(),
       break
     }
 
-    # if (pll - prev_pll < -1e-12) {
-    #   warning(paste0(if (psi1 != 0 | psi2 != 0) {"penalised "} else {""}, "log-likelihood no longer monotonic increasing; stopping at previous iteration"))
-    #   conv = 2
-    #   par.list <- prev_par.list
-    #   pll <- prev_pll
-    #   iter <- iter - 1
-    #   break
-    # }
-
-    # if (abs(pll - prev_pll)/abs(prev_pll) < tol) {
-    if (abs(pll - prev_pll) < tol) {
+    if (abs(pll - prev_pll)/(0.1 + abs(pll)) < tol) {
+    # if (abs(pll - prev_pll) < tol) {
       conv = 0
       break
     }
@@ -359,7 +370,9 @@ csam <- function(Y, X, g = 3, d = 2, family = poisson(),
     psi2 = psi2,
     g = g,
     d = d,
-    convergence = conv
+    convergence = conv,
+    call = cl,
+    call.env = parent.frame()
   )
 
   if (trace) out$trace <- trace_store
@@ -443,7 +456,7 @@ csam <- function(Y, X, g = 3, d = 2, family = poisson(),
 #'
 #' @export
 sam <- function(Y, X, g = 3, family = poisson(),
-                max_iter = 100, tol = 1e-3,
+                max_iter = 100, tol = 1e-8,
                 verbose = TRUE, start = NULL,
                 maxit_step1 = 5, maxit_step2 = 5,
                 #first_maxit_step1 = 50, first_maxit_step2 = 50,
@@ -560,7 +573,7 @@ sam <- function(Y, X, g = 3, family = poisson(),
     }
 
     if (verbose) {
-      cat(sprintf("Iter %3d: log-lik = %.6f | Ratio = %3f\n", iter, pll, exp(prev_pll - pll)))
+      cat(sprintf("Iter %3d: log-lik = %.6f | Relative change = %.8f\n", iter, pll, abs(pll - prev_pll)/(0.1 + abs(pll))))
     }
 
     if (trace) {
@@ -580,7 +593,8 @@ sam <- function(Y, X, g = 3, family = poisson(),
       }
     }
 
-    if (abs(pll - prev_pll) < tol) {
+    if (abs(pll - prev_pll)/(0.1 + abs(pll)) < tol) {
+    # if (abs(pll - prev_pll) < tol) {
       conv = 0
       break
     }

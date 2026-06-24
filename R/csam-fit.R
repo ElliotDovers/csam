@@ -111,6 +111,7 @@ csam <- function(Y, X, g = 3, d = 2, family = poisson(),
     # if unpenalised version set to beyond the max iterations
     starts.at.step1.from.iter <- max_iter + 1
   } else if (is.null(starts.at.step1.from.iter)) {
+    # otherwise, a default of three steps without starts seems stable and quick
     starts.at.step1.from.iter <- 3
   }
   if (psi1 == 0 & psi2 == 0 & use.glm.fit.when.unpenalised & is.null(starts.at.step2.from.iter)) {
@@ -460,7 +461,7 @@ sam <- function(Y, X, g = 3, family = poisson(),
                 verbose = TRUE, start = NULL,
                 maxit_step1 = 5, maxit_step2 = 5,
                 #first_maxit_step1 = 50, first_maxit_step2 = 50,
-                starts.at.step1.from.iter = 0, starts.at.step2.from.iter = 0,
+                starts.at.step1.from.iter = 3, starts.at.step2.from.iter = 3,
                 trace = TRUE) {
 
   n <- nrow(Y); s <- ncol(Y); p <- ncol(X)
